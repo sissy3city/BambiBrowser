@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "BambiBrowser",
+  "version": "3.3",
+  "description": "Automatic fullscreen video mode with input lock on hypnotube.com after one-time user activation.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["setup.html"],
+      "matches": ["*://*/*"]
+    }
+  ],
+  "action": {
+    "default_title": "BambiBrowser"
+  }
+}
