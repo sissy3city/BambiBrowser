@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "BambiBrowser",
+  "version": "3.5",
+  "description": "Automatic fullscreen video hijack for hypnotube.com",
+  "permissions": ["storage"],
+  "host_permissions": ["*://*.hypnotube.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://*.hypnotube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_title": "BambiBrowser"
+  }
+}
