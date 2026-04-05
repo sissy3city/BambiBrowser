@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BambiBrowser</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 10px;
+      background: #0b0b12;
+      color: #f5f5ff;
+      width: 280px;
+      box-sizing: border-box;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 8px;
+    }
+    .section {
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      background: #151521;
+      border: 1px solid #333;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .badge-ok {
+      background: #16391f;
+      color: #7dff9a;
+      border: 1px solid #2f8b4a;
+    }
+    .badge-warn {
+      background: #3b1a1a;
+      color: #ff9b9b;
+      border: 1px solid #b33a3a;
+    }
+    .badge-info {
+      background: #1a243b;
+      color: #9bc5ff;
+      border: 1px solid #3a5ab3;
+    }
+    .hint {
+      font-size: 11px;
+      opacity: 0.75;
+      margin-top: 4px;
+    }
+    button {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      background: #ff6bd6;
+      color: #1a0b1f;
+      font-weight: 600;
+    }
+    button.secondary {
+      background: #26263a;
+      color: #f5f5ff;
+    }
+    input[type="checkbox"] {
+      transform: scale(1.1);
+    }
+    .status-line {
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .danger-text {
+      color: #ff9b9b;
+    }
+    .success-text {
+      color: #7dff9a;
+    }
+  </style>
+</head>
+<body>
+  <h1>BambiBrowser</h1>
+
+  <div class="section">
+    <div class="row">
+      <span>Bambi Mode</span>
+      <input type="checkbox" id="toggleBambi">
+    </div>
+    <div id="bambiStatus" class="status-line"></div>
+  </div>
+
+  <div class="section">
+    <div class="row">
+      <span>Bambi Player</span>
+      <span id="serverBadge" class="badge badge-info">Checking…</span>
+    </div>
+    <div id="serverStatus" class="status-line"></div>
+  </div>
+
+  <div class="section">
+    <div class="row">
+      <span>Setup</span>
+      <span id="setupBadge" class="badge badge-info">Checking…</span>
+    </div>
+    <div id="setupStatus" class="status-line"></div>
+    <button id="openSettingsBtn" class="secondary" style="margin-top:6px;">Open Settings</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
