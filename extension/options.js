@@ -193,7 +193,7 @@ function fetchMonitors() {
     .catch((err) => {
       els.monitorStatus.textContent = "Failed to fetch monitors. Make sure Bambi Player is running.";
       els.monitorStatus.style.color = "#ff9b9b";
-      console.error("Monitor fetch error:", err);
+      console.log("[Bambi] Monitor fetch skipped (server offline)");
     });
 }
 
