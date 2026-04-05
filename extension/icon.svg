@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="18" fill="#1e0022"/>
+  <!-- left ear -->
+  <ellipse cx="40" cy="36" rx="11" ry="27" fill="#9922aa" transform="rotate(-14 40 36)"/>
+  <ellipse cx="40" cy="36" rx="5"  ry="17" fill="#ee66ff" transform="rotate(-14 40 36)"/>
+  <!-- right ear -->
+  <ellipse cx="88" cy="36" rx="11" ry="27" fill="#9922aa" transform="rotate(14 88 36)"/>
+  <ellipse cx="88" cy="36" rx="5"  ry="17" fill="#ee66ff" transform="rotate(14 88 36)"/>
+  <!-- head -->
+  <circle cx="64" cy="83" r="31" fill="#9922aa"/>
+  <circle cx="64" cy="83" r="27" fill="#bb44cc"/>
+  <!-- eyes -->
+  <circle cx="52" cy="77" r="5" fill="#1e0022"/>
+  <circle cx="76" cy="77" r="5" fill="#1e0022"/>
+  <!-- nose -->
+  <ellipse cx="64" cy="91" rx="5" ry="4" fill="#ff99ff"/>
+  <!-- + badge -->
+  <circle cx="104" cy="22" r="14" fill="#ee66ff"/>
+  <rect   x="101" y="14" width="6" height="16" rx="3" fill="#1e0022"/>
+  <rect   x="96"  y="19" width="16" height="6" rx="3" fill="#1e0022"/>
+</svg>
