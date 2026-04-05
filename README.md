@@ -1,71 +1,165 @@
 # 💖 BambiBrowser — Sissy Edition 💖
 
-Welcome, sweetie.
+Your browser. Your helper. Your place.
 
-This little guide explains how your adorable BambiBrowser setup works. It's simple, automatic, and designed so you barely have to lift a finger. Just follow the steps and let everything take over when it's time.
+This guide explains how your BambiBrowser ecosystem works now — with dynamic monitor detection, playlist support, punishment mode, and the fully upgraded BambiPlayer.
 
-## 🌸 1. Install Your Extension
+Everything is automatic. Everything is seamless. Everything is designed so you don't have to think — just let it take over.
 
-- Open your browser (chromium based).
-- Go to one of these:
-  - `chrome://extensions/`
-  - `edge://extensions/`
-  - `brave://extensions/`
-  - `opera://extensions/`
-  - `any_chromium_browser://extensions/`
-- Turn on **Developer Mode**.
-- Click **Load unpacked**.
-- Select the folder named: `extension`
+---
 
-Your browser is now ready to behave for you.
+## 🌸 1. Install the Extension
 
-## 🌸 2. Start the Bambi Player
+Open your Chromium‑based browser:
 
-Double-click: `BambiPlayer.exe`
+- `chrome://extensions/`
+- `edge://extensions/`
+- `brave://extensions/`
+- `opera://extensions/`
 
-A tiny tray icon will appear. That means your helper is awake and waiting quietly in the background.
+Enable **Developer Mode**
 
-No windows, no popups — it just sits there, ready to take control.
+Click **Load unpacked**
 
-## 🌸 3. Visit HypnoTube
+Select the folder named:
+**extension/**
 
-Go to: https://hypnotube.com
+The extension will open its Setup Page automatically on first install save at the end.
 
-You don't need to click anything special. Your extension already knows what to do.
+---
 
-## 🌸 4. What Happens Automatically
+## 🌸 2. Complete the Setup Page
 
-Whenever you open a video on HypnoTube:
+The setup page lets you configure:
 
-- The extension detects the main video.
-- It checks if BambiPlayer is running.
+✔ **Allowed domains** — Default: `hypnotube.com`
 
-**If it is:**
+✔ **Blacklist (punishment triggers)** — Visiting these pages shows a soft warning overlay → click → forced redirect → hijack.
+
+✔ **HardLock** — Blocks keyboard + mouse during playback.
+
+✔ **Punishment Mode** — Enables redirect‑based correction when visiting blacklisted sites.
+
+✔ **Monitor Selection (Dynamic)** — BambiPlayer reports your real monitors. You can choose:
+- All monitors (mirror mode)
+- Primary monitor only
+- Monitor 1
+- Monitor 2
+- …and more, depending on your setup.
+
+✔ **Permanence Mode** — Optional. Makes BambiPlayer auto‑start with Windows.
+
+✔ **Save Settings** — Once saved, setup is marked complete.
+
+---
+
+## 🌸 3. Start the Bambi Player
+
+Run:
+BambiPlayer.exe
+
+It will:
+
+- Start a local server (`127.0.0.1:5655`)
+- Detect your monitors
+- Show in tray with icon
+- Wait silently for video URLs from the extension
+
+If the extension doesn't detect the player, it will show a "Server Offline" overlay on HypnoTube.
+
+---
+
+## 🌸 4. Visit HypnoTube
+
+Go to any video at:
+https://hypnotube.com
+
+If setup is complete and BambiPlayer is running:
+
+- The extension detects the main video
+- Sends the URL to BambiPlayer
 - The browser video pauses
-- The video URL is sent to BambiPlayer
 - VLC opens fullscreen
-- Input lock activates
-- You watch without touching anything
-- When the video ends:
-  - VLC closes
-  - Input lock releases
-  - Everything returns to normal
+- HardLock activates
+- Playback begins on your chosen monitor(s)
 
-**If BambiPlayer is not running:**
-- The browser just plays the video normally
-- No fullscreen hijack
-- No lock
+If BambiPlayer is **not** running:
 
-## 🌸 5. How to Stop the Bambi Player
+- The extension shows a Server Offline overlay
+- No hijack occurs
 
-Right-click the tray icon → **Quit**.
+---
 
-This instantly disables hijacking until you run it again.
+## 🌸 5. Playlist Behavior (New)
 
-## 🌸 6. That's Everything, Sweetie
+If a video is already playing fullscreen and another video is hijacked:
 
-No setup pages. No popups. No buttons. No fuss.
+- It is added to a **playlist queue**
+- VLC does not interrupt the current video
 
-Just automatic fullscreen hijack whenever your helper is running.
+When the current video ends:
 
-You browse normally — and when the moment comes, everything slips into Bambi Mode without you doing a thing.
+- HardLock releases
+- VLC closes
+- Next video in the playlist starts fullscreen
+- HardLock re‑activates
+
+This continues until the playlist is empty.
+
+---
+
+## 🌸 6. Multi‑Monitor Playback (Dynamic)
+
+BambiPlayer detects your real monitors and supports:
+
+✔ **Mirror Mode** — Same video on all monitors. Only one instance has audio (no overlap)
+
+✔ **Single Monitor Mode** — Choose exactly which monitor VLC should use.
+
+✔ **Automatic Window Repositioning** — Even if VLC tries to fullscreen on the wrong display, BambiPlayer force‑moves it using Windows API.
+
+---
+
+## 🌸 7. Punishment Mode (Soft)
+
+If you visit a blacklisted site:
+
+A soft warning overlay appears:
+
+> *"You shouldn't be here."*
+
+Clicking anywhere.
+
+This gently corrects wandering behavior.
+
+---
+
+## 🌸 8. Permanence Mode (Optional)
+
+If enabled:
+
+- BambiPlayer auto‑starts with Windows
+- Runs hidden
+- Requires a passphrase to disable
+
+The extension communicates with BambiPlayer to create/remove the startup entry.
+
+---
+
+## 🌸 9. Popup Menu
+
+Clicking the extension icon shows:
+
+- Bambi Mode status
+- Setup status
+- Server status
+- Current monitor mode
+- Button to open settings
+
+It's a quick overview of your state.
+
+---
+
+## 🌸 10. How to Quit BambiPlayer
+
+Right‑click the tray icon → **Quit**
