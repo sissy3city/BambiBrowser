@@ -239,6 +239,17 @@ if (window.__bambiLoaded) {
   }
 
   function showServerOfflineOverlay() {
+    // Only show on matched domain (hypnotube.com), not on other sites
+    if (!isMatchedDomain) {
+      console.log("[Bambi] server offline - not on matched domain, skipping overlay");
+      return;
+    }
+
+    if (!isHypnoTube()) {
+      console.log("[Bambi] server offline - not on hypnotube.com, skipping overlay");
+      return;
+    }
+
     const overlay = document.createElement("div");
     overlay.style = `
       position: fixed;
@@ -253,13 +264,37 @@ if (window.__bambiLoaded) {
       z-index: 999999999;
       text-align: center;
       padding: 20px;
+      cursor: pointer;
+      user-select: none;
     `;
     overlay.innerHTML = `
       <div>Bambi Player is not running</div>
       <div style="font-size:1.2rem; margin-top:10px;">
-        Start <b>bambi_player.py</b> to enable fullscreen hijack.
+        Click to use browser fullscreen autoplay
+      </div>
+      <div style="font-size:1rem; margin-top:20px; opacity:0.7;">
+        (or start <b>bambi_player.py</b> for VLC hijack)
       </div>
     `;
+
+    overlay.addEventListener("click", async () => {
+      console.log("[Bambi] offline overlay clicked → falling back to browser autoplay");
+      overlay.remove();
+
+      const v = findMainVideo();
+      if (v) {
+        // Request fullscreen and input locks IMMEDIATELY within gesture context
+        await enterFullscreen(v);
+        await enableKeyboardLock();
+        await enablePointerLock();
+        
+        // Then start autoplay
+        autoplayWithUnmute(v);
+      } else {
+        console.log("[Bambi] no video found for autoplay fallback");
+      }
+    });
+
     document.body.appendChild(overlay);
   }
 
@@ -270,17 +305,24 @@ if (window.__bambiLoaded) {
   async function enterFullscreen(elem) {
     try {
       if (!document.fullscreenElement && elem?.requestFullscreen) {
-        console.log("[Bambi] requesting fullscreen on", elem);
-        await elem.requestFullscreen();
+        console.log("[Bambi] requesting fullscreen on", elem.tagName);
+        await elem.requestFullscreen({ navigationUI: "hide" }).catch(e => {
+          console.log("[Bambi] fullscreen with navigationUI failed, retrying without it");
+          return elem.requestFullscreen();
+        });
       }
     } catch (e) {
-      console.warn("[Bambi] requestFullscreen failed:", e);
+      console.log("[Bambi] fullscreen unavailable (not critical):", e.message);
     }
   }
 
   async function enableKeyboardLock() {
     if (!bambiInputLockEnabled) return;
     if (!navigator.keyboard?.lock) return;
+    if (!document.fullscreenElement) {
+      console.log("[Bambi] keyboard.lock skipped (not in fullscreen)");
+      return;
+    }
     try {
       console.log("[Bambi] enabling keyboard lock");
       await navigator.keyboard.lock([
@@ -292,7 +334,7 @@ if (window.__bambiLoaded) {
         "MetaRight"
       ]);
     } catch (e) {
-      console.warn("[Bambi] keyboard.lock failed:", e);
+      console.log("[Bambi] keyboard.lock unavailable (not critical):", e.message);
     }
   }
 
@@ -309,7 +351,7 @@ if (window.__bambiLoaded) {
         req.call(document.body);
       }
     } catch (e) {
-      console.warn("[Bambi] pointer lock failed:", e);
+      console.log("[Bambi] pointer lock unavailable (not critical)");
     }
   }
 
@@ -447,14 +489,28 @@ if (window.__bambiLoaded) {
   function autoplayWithUnmute(v) {
     console.log("[Bambi] autoplay fallback → starting muted");
 
+    const videoUrl = v.currentSrc || v.src || "";
+    // For history, store the current page URL (not the direct media URL with expiring token)
+    const pageUrl = location.href;
+    
     v.muted = true;
     v.autoplay = true;
 
     v.play()
-      .then(() => {
+      .then(async () => {
         console.log("[Bambi] autoplay started, attempting immediate unmute");
 
         v.muted = false;
+
+        // Add page URL to history for future punishment use (not direct media URL which expires)
+        if (pageUrl && isHypnoTube()) {
+          addToVideoHistory(pageUrl);
+          console.log("[Bambi] ✓ HypnoTube page added to history:", pageUrl);
+        } else if (videoUrl) {
+          // Fallback: store video URL if not on hypnotube
+          addToVideoHistory(videoUrl);
+          console.log("[Bambi] ✓ Video URL added to history:", videoUrl);
+        }
 
         if (v.paused) {
           handleAutoplayBlocked(v);
@@ -492,11 +548,18 @@ if (window.__bambiLoaded) {
 
     if (serverAvailable) {
       console.log("[Bambi] server available → sending to VLC");
+      // Set flag BEFORE async to prevent race conditions with concurrent calls
+      videoAlreadySent = true;
       const sent = await sendVideoToServer(videoSrc);
       if (sent) {
         console.log("[Bambi] ✓ Video sent to VLC");
-        videoAlreadySent = true;
-        addToVideoHistory(videoSrc);
+        // Store page URL in history (not direct media URL with expiring token)
+        if (isHypnoTube()) {
+          addToVideoHistory(location.href);
+          console.log("[Bambi] ✓ HypnoTube page saved to history:", location.href);
+        } else {
+          addToVideoHistory(videoSrc);
+        }
         v.pause();
         v.autoplay = false;
 
@@ -513,6 +576,7 @@ if (window.__bambiLoaded) {
       }
     } else {
       console.log("[Bambi] server offline → using browser autoplay fallback");
+      videoAlreadySent = true;
       autoplayWithUnmute(v);
       return;
     }
@@ -607,9 +671,17 @@ if (window.__bambiLoaded) {
       overlay.remove();
       markBambiActivated();
 
-      const v = findMainVideo();
-      if (v) {
-        autoplayWithUnmute(v);
+      // If server is available, try VLC hijack first
+      if (serverAvailable) {
+        console.log("[Bambi] trying VLC hijack");
+        await tryHijackOrFallback();
+      } else {
+        // Server offline, use browser autoplay
+        console.log("[Bambi] server offline, using browser autoplay");
+        const v = findMainVideo();
+        if (v) {
+          autoplayWithUnmute(v);
+        }
       }
     });
 
@@ -680,12 +752,12 @@ if (window.__bambiLoaded) {
       </div>
     `;
 
-    overlay.addEventListener("click", () => {
+    overlay.addEventListener("click", async () => {
       overlay.remove();
       if (!isExtensionContextValid()) return;
       
       // Get a random video from history and trigger hijack
-      chrome.storage.local.get({ bambiVideoHistory: [] }, (data) => {
+      chrome.storage.local.get({ bambiVideoHistory: [] }, async (data) => {
         const history = Array.isArray(data.bambiVideoHistory) ? data.bambiVideoHistory : [];
         if (history.length === 0) {
           console.log("[Bambi] No videos in history for punishment");
@@ -698,20 +770,16 @@ if (window.__bambiLoaded) {
         // Trigger force hijack
         safeStorageSet({ bambiForceHijack: true });
         
-        // Send to VLC
-        fetch("http://127.0.0.1:5655/play", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: randomVideo,
-            multi_monitor: bambiMultiMonitor,
-            input_lock: bambiInputLockEnabled
-          })
-        }).then(() => {
-          console.log("[Bambi] ✓ Punishment video sent to VLC");
-        }).catch(e => {
-          console.error("[Bambi] Punishment send failed:", e);
-        });
+        // If server is available, navigate to page to trigger normal hijack flow
+        // (which will extract media URL and send to VLC)
+        if (serverAvailable) {
+          console.log("[Bambi] VLC mode: navigating to page to trigger hijack");
+          window.location.href = randomVideo;
+        } else {
+          // Server offline: direct navigation for browser playback
+          console.log("[Bambi] VLC offline - navigating to page for browser autoplay");
+          window.location.href = randomVideo;
+        }
       });
     });
 
@@ -820,22 +888,27 @@ if (window.__bambiLoaded) {
             return;
         }
 
-        if (!running) {
-            showServerOfflineOverlay();
-            return;
+        // Check for blacklist punishment redirect FIRST (regardless of domain or server status)
+        if (bambiSetupComplete && bambiBlacklist.length > 0) {
+          checkBlacklistPunishment();
         }
 
-        if (running) {
-          console.log("[Bambi] ✓ Python server is running! VLC hijack mode enabled.");
-        } else {
-          console.log("[Bambi] Server offline → blocking hijack + activation");
+        // If not on a matched domain, don't interfere at all (but punishment already checked above)
+        if (!isMatchedDomain) {
+          console.log("[Bambi] not on matched domain → no overlays or hijack");
+          return;
+        }
+
+        // On matched domain but server not running → show offline overlay with autoplay fallback
+        if (!running) {
+          console.log("[Bambi] server offline on matched domain → showing fallback overlay");
           showServerOfflineOverlay();
           return;
         }
 
-        // Check for blacklist punishment redirect
-        if (bambiSetupComplete && running && bambiBlacklist.length > 0) {
-          checkBlacklistPunishment();
+        // Server is running and on matched domain
+        if (running) {
+          console.log("[Bambi] ✓ Python server is running! VLC hijack mode enabled.");
         }
 
         if (isBambiActivated()) {
