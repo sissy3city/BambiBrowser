@@ -138,75 +138,6 @@ def get_monitor_info():
     return {}
 
 
-def reposition_vlc_window(pid: int, monitor_index: int):
-  """Position VLC window to correct monitor using Windows API - PRIMARY METHOD"""
-  if sys.platform != "win32":
-    return
-  
-  monitor_info = get_monitor_info()
-  if monitor_index not in monitor_info:
-    logger.debug(f"[MONITOR {monitor_index}] Monitor info not available")
-    return
-  
-  monitor = monitor_info[monitor_index]
-  
-  try:
-    user32 = ctypes.windll.user32
-    SWP_NOZORDER = 0x0004
-    
-    # Wait longer for VLC fullscreen window to be created and made visible
-    time.sleep(2.5)
-    
-    # More aggressive retry strategy: 20 attempts × 0.5s = 10 seconds total search
-    for attempt in range(20):
-      found = []
-      
-      def find_window(hwnd, lp):
-        nonlocal found
-        try:
-          pid_out = ctypes.c_ulong()
-          user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid_out))
-          
-          # Check if window belongs to our PID and is visible
-          if pid_out.value == pid and user32.IsWindowVisible(hwnd):
-            # Get window class name to verify it's VLC
-            class_name_buffer = ctypes.create_unicode_buffer(256)
-            user32.GetClassNameW(hwnd, class_name_buffer, 256)
-            class_name = class_name_buffer.value
-            
-            # Accept VLC windows or any visible window from VLC process (fallback)
-            if "vlc" in class_name.lower() or attempt >= 15:
-              found.append(hwnd)
-              logger.debug(f"[MONITOR {monitor_index}] Found window: class={class_name}, visible=True, pid={pid_out.value}")
-        except Exception as e:
-          logger.debug(f"[MONITOR {monitor_index}] Window enum error: {e}")
-        return True
-      
-      enum_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
-      callback = enum_proc(find_window)
-      user32.EnumWindows(callback, 0)
-      
-      if found:
-        for hwnd in found:
-          try:
-            x, y = int(monitor["x"]), int(monitor["y"])
-            w, h = int(monitor["width"]), int(monitor["height"])
-            user32.SetWindowPos(hwnd, None, x, y, w, h, SWP_NOZORDER)
-            logger.info(f"[MONITOR {monitor_index}] Window repositioned to {x},{y} ({w}x{h}) on attempt {attempt+1}")
-          except Exception as e:
-            logger.debug(f"[MONITOR {monitor_index}] SetWindowPos error: {e}")
-        return
-      
-      # Wait between retries (longer waits help with fullscreen initialization)
-      time.sleep(0.5)
-    
-    logger.warning(f"[MONITOR {monitor_index}] Failed to find VLC window after 20 attempts (10 seconds). Window may be obscured or not fully initialized.")
-    
-  except Exception as e:
-    logger.error(f"[MONITOR {monitor_index}] Repositioning error: {e}")
-
-
-
 # ------------------------------------------------------# Fullscreen Video Player
 # ------------------------------------------------------
 class FullscreenVideoPlayer:
@@ -275,26 +206,27 @@ class FullscreenVideoPlayer:
 
   def _build_vlc_args(self, video_url: str, screen_index: int | None = None, total_monitors: int = 1):
     args = [
-      self.media_player,
-      "--fullscreen",
-      "--video-on-top",
-      "--play-and-exit",
-      "--no-video-title-show",
-      "--no-osd",
-      "--no-qt-fs-controller",
-      "--volume=256",
-      "--no-mouse-events",
-      "--no-keyboard-events",
+        self.media_player,
+        "--no-one-instance",
+        "--no-one-instance-when-started-from-file",
+        "--fullscreen",
+        "--video-on-top",
+        "--play-and-exit",
+        "--no-video-title-show",
+        "--no-osd",
+        "--no-qt-fs-controller",
+        "--volume=256",
+        "--no-mouse-events",
+        "--no-keyboard-events",
     ]
 
-    # Mute audio ONLY on non-primary monitors when multiple monitors are active
-    # to prevent audio overlap between instances
-    if total_monitors > 1 and screen_index is not None and screen_index > 0:
-      args.append("--no-audio")
-      logger.info(f"[MONITOR {screen_index}] Audio muted (multi-monitor session, secondary monitor)")
+    if screen_index is not None:
+        args.append(f"--qt-fullscreen-screennumber={int(screen_index)}")
+
+    if total_monitors > 1 and screen_index is not None and int(screen_index) > 0:
+        args.append("--no-audio")
 
     args.append(video_url)
-    
     return args
 
   # ---------- Playback ----------
@@ -372,8 +304,6 @@ class FullscreenVideoPlayer:
             self.player_processes.append((proc, idx))
             logger.info(f"[MONITOR {idx}] Started VLC process (PID {proc.pid})")
             
-            # Position window on correct monitor
-            threading.Thread(target=reposition_vlc_window, args=(proc.pid, idx), daemon=True).start()
         else:
           # Single-monitor: let VLC decide (usually primary)
           args = self._build_vlc_args(video_url, screen_index=None)
@@ -386,9 +316,6 @@ class FullscreenVideoPlayer:
           
           self.player_processes.append((proc, 0))
           logger.info(f"[MONITOR 0] Started VLC process (PID {proc.pid})")
-          
-          # Light fallback repositioning
-          threading.Thread(target=reposition_vlc_window, args=(proc.pid, 0), daemon=True).start()
 
         if not self.player_processes:
           logger.error("Failed to start any VLC process")
