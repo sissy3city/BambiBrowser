@@ -1,19 +1,16 @@
 {
   "manifest_version": 3,
   "name": "BambiBrowser",
-  "version": "4.0",
-  "description": "Automatic fullscreen video hijack for hypnotube.com — multi‑domain ready.",
+  "version": "5.0",
+  "description": "Send videos to BambiBrowser desktop app",
 
-  "permissions": [
-    "storage",
-    "tabs",
-    "idle",
-    "alarms",
-    "webNavigation"
-  ],
+  "permissions": ["storage"],
 
   "host_permissions": [
-    "<all_urls>"
+    "https://hypnotube.com/*",
+    "https://*.hypnotube.com/*",
+    "http://127.0.0.1:5655/*",
+    "http://localhost:5655/*"
   ],
 
   "background": {
@@ -22,27 +19,30 @@
 
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle",
-      "all_frames": false
+      "matches": [
+        "https://hypnotube.com/*",
+        "https://*.hypnotube.com/*"
+      ],
+      "js": [
+        "detectors/hypnotube.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
 
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icon16.png",
-      "48": "icon48.png",
-      "128": "icon128.png"
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
     }
   },
 
-  "options_page": "options.html",
-
   "icons": {
-    "16": "icon16.png",
-    "48": "icon48.png",
-    "128": "icon128.png"
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 }
