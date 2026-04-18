@@ -1,15 +1,17 @@
+// Cross-browser compatible background script
+const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
 const SERVER_URL = "http://127.0.0.1:5655";
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.set({ enabled: true });
+browserAPI.runtime.onInstalled.addListener(() => {
+  browserAPI.storage.local.set({ enabled: true });
 });
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+browserAPI.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "CHECK_SERVER") {
     fetch(`${SERVER_URL}/health`)
       .then(res => sendResponse({ online: res.ok }))
       .catch(() => sendResponse({ online: false }));
-    return true;
+    return true;  // Keep channel open for async response
   }
   
   if (msg.type === "SEND_VIDEO") {
