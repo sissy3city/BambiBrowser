@@ -1,6 +1,7 @@
 (function() {
   "use strict";
   
+  const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
   const SERVER_URL = "http://127.0.0.1:5655";
   
   let settings = { enabled: true };
@@ -32,11 +33,11 @@
   console.log("[Bambi] Using detector:", detector.name);
   
   // Load enabled setting
-  chrome.storage.local.get({ enabled: true }, (data) => {
+  browserAPI.storage.local.get({ enabled: true }, (data) => {
     settings.enabled = data.enabled;
   });
   
-  chrome.storage.onChanged.addListener((changes) => {
+  browserAPI.storage.onChanged.addListener((changes) => {
     if (changes.enabled) {
       settings.enabled = changes.enabled.newValue;
     }
@@ -252,6 +253,10 @@
       // Request fullscreen first
       if (video.requestFullscreen) {
         await video.requestFullscreen();
+      } else if (video.mozRequestFullScreen) {
+        await video.mozRequestFullScreen();
+      } else if (video.webkitRequestFullscreen) {
+        await video.webkitRequestFullscreen();
       }
       
       // Then play
@@ -354,18 +359,25 @@
     showEnterOverlay(video);
   }
   
-  // Fullscreen change listener
-  document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && fallbackActive) {
-      exitFullscreenMode();
-    }
+  // Fullscreen change listener (cross-browser)
+  const fullscreenEvents = ['fullscreenchange', 'mozfullscreenchange', 'webkitfullscreenchange', 'msfullscreenchange'];
+  fullscreenEvents.forEach(event => {
+    document.addEventListener(event, () => {
+      const isFullscreen = document.fullscreenElement || document.mozFullScreenElement || 
+                          document.webkitFullscreenElement || document.msFullscreenElement;
+      if (!isFullscreen && fallbackActive) {
+        exitFullscreenMode();
+      }
+    });
   });
   
   // Video ended
   document.addEventListener('ended', (e) => {
     if (fallbackActive && e.target === originalVideo) {
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
+      const exitFullscreen = document.exitFullscreen || document.mozCancelFullScreen || 
+                            document.webkitExitFullscreen || document.msExitFullscreen;
+      if (exitFullscreen) {
+        exitFullscreen.call(document);
       }
       exitFullscreenMode();
     }

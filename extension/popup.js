@@ -1,4 +1,5 @@
-// popup.js - Quick enable/disable
+// Cross-browser compatible popup script
+const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
 const SERVER_URL = "http://127.0.0.1:5655";
 
 const enableToggle = document.getElementById("enableToggle");
@@ -11,7 +12,6 @@ const hintText = document.getElementById("hintText");
 let isEnabled = true;
 let isOnline = false;
 
-// Check server
 async function checkServer() {
   try {
     const res = await fetch(`${SERVER_URL}/health`);
@@ -32,8 +32,7 @@ async function checkServer() {
   }
 }
 
-// Load enabled state
-chrome.storage.local.get({ enabled: true }, (data) => {
+browserAPI.storage.local.get({ enabled: true }, (data) => {
   isEnabled = data.enabled;
   updateToggleUI();
 });
@@ -50,20 +49,17 @@ function updateToggleUI() {
   }
 }
 
-// Toggle click
 enableToggle.addEventListener("click", () => {
   isEnabled = !isEnabled;
   updateToggleUI();
-  chrome.storage.local.set({ enabled: isEnabled });
+  browserAPI.storage.local.set({ enabled: isEnabled });
 });
 
-// Open app
 document.getElementById("openApp").onclick = () => {
   fetch(`${SERVER_URL}/health`)
     .then(() => window.close())
     .catch(() => alert("BambiBrowser app is not running.\n\nStart the app for VLC fullscreen mode."));
 };
 
-// Init
 checkServer();
 setInterval(checkServer, 3000);
