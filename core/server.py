@@ -155,6 +155,21 @@ class BambiRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "no_player"}, 500)
             return
         
+        # CHECK IF SETTINGS ARE LOCKED - REQUIRED FOR PLAYBACK
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("BambiBrowser", "Settings")
+        otp_hash = settings.value("otp_hash", "")
+        settings_are_locked = bool(otp_hash and otp_hash.strip() != "")
+        
+        # REJECT PLAYBACK IF SETTINGS NOT LOCKED
+        if not settings_are_locked:
+            logger.warning("Play request rejected: Settings not locked")
+            self._send_json({
+                "error": "settings_not_locked",
+                "message": "Settings must be saved and locked before playback."
+            }, 403)
+            return
+        
         video_url = data.get("url") or data.get("videoUrl")
         if not video_url:
             self._send_json({"error": "no_url"}, 400)
@@ -163,26 +178,126 @@ class BambiRequestHandler(BaseHTTPRequestHandler):
         # GET SAVED SETTINGS FROM PLAYER
         saved_settings = self.player_instance.settings
         
-        # Use saved settings as defaults, allow override if extension sends values
+        # CHECK MAX VIDEO LENGTH LIMIT (fast, non-blocking)
+        if saved_settings.get("max_video_length_enabled", False):
+            from core.duration_helper import estimate_video_duration
+            
+            max_video_minutes = saved_settings.get("max_video_length_minutes", 10)
+            action = saved_settings.get("max_video_length_action", "Block & Show Warning")
+            
+            # Get video duration (fast, no VLC)
+            duration_seconds, source = estimate_video_duration(video_url)
+            
+            if duration_seconds is None:
+                logger.info(f"Could not detect duration for: {video_url[:80]}")
+                # ... existing code ...
+            else:
+                # Better duration formatting
+                if duration_seconds < 60:
+                    duration_display = f"{duration_seconds}s"
+                else:
+                    minutes = duration_seconds // 60
+                    seconds = duration_seconds % 60
+                    if seconds == 0:
+                        duration_display = f"{minutes}m"
+                    else:
+                        duration_display = f"{minutes}m {seconds}s"
+                
+                video_duration_minutes = duration_seconds // 60
+                max_seconds = max_video_minutes * 60
+                
+                logger.info(f"Video duration: {duration_display} ({source}), limit: {max_video_minutes}m")
+                
+                if duration_seconds > max_seconds:
+                    logger.warning(f"Video exceeds limit: {video_duration_minutes}m > {max_video_minutes}m")
+                    
+                    if action == "Block & Show Warning":
+                        self._send_json({
+                            "error": "video_length_exceeded",
+                            "message": f"Video is ~{video_duration_minutes}m, exceeds limit of {max_video_minutes}m"
+                        }, 403)
+                        return
+                    
+                    elif action == "Auto-Skip Video":
+                        self._send_json({
+                            "skipped": True,
+                            "message": f"Video skipped: ~{video_duration_minutes}m > {max_video_minutes}m limit"
+                        }, 200)
+                        return
+                    
+                    elif action == "Stop Playback":
+                        if self.player_instance._is_playing:
+                            self.player_instance.stop()
+                        self._send_json({
+                            "error": "playback_stopped",
+                            "message": f"Playback stopped: Video exceeds {max_video_minutes}m limit"
+                        }, 403)
+                        return
+                    
+                    # "Warn & Allow" - continue but log warning
+                    logger.warning(f"Allowing long video ({video_duration_minutes}m) - Warn & Allow mode")
+        
+        # CHECK MAX QUEUE DURATION LIMIT
+        if saved_settings.get("max_queue_duration_enabled", False):
+            max_queue_minutes = saved_settings.get("max_queue_duration_minutes", 60)
+            action = saved_settings.get("max_queue_duration_action", "Reject New Videos")
+            
+            # Estimate current queue duration
+            current_queue_minutes = 0
+            if self.player_instance._manager:
+                for controller in self.player_instance._manager._controllers.values():
+                    current_queue_minutes += controller.queue_size * 10  # 10 min per queued video
+            
+            # Get duration for new video (or use default 10 min)
+            new_duration_seconds, _ = estimate_video_duration(video_url)
+            new_duration_minutes = (new_duration_seconds // 60) if new_duration_seconds else 10
+            
+            total_estimated = current_queue_minutes + new_duration_minutes
+            
+            if total_estimated > max_queue_minutes:
+                logger.warning(f"Queue duration limit: {total_estimated}m > {max_queue_minutes}m")
+                
+                if action == "Reject New Videos":
+                    self._send_json({
+                        "error": "queue_duration_limit",
+                        "message": f"Queue would be ~{total_estimated}m (limit: {max_queue_minutes}m)"
+                    }, 403)
+                    return
+                elif action == "Stop Playback":
+                    if self.player_instance._is_playing:
+                        self.player_instance.stop()
+                    self._send_json({
+                        "error": "playback_stopped",
+                        "message": f"Playback stopped: Queue exceeded {max_queue_minutes}m limit"
+                    }, 403)
+                    return
+                elif action == "Clear Queue":
+                    if self.player_instance._manager:
+                        for controller in self.player_instance._manager._controllers.values():
+                            controller.clear_queue()
+                    logger.info("Queue cleared due to duration limit")
+                # "Warn Only" - continue
+        
+        # Build play request
         request = PlayRequest(
             url=video_url,
-            multi_monitor=bool(data.get("multi_monitor", data.get("multiMonitor", 
-                saved_settings.get("multi_monitor", False)))),
-            input_lock=bool(data.get("input_lock", data.get("inputLock", data.get("hard_lock", data.get("hardLock",
-                saved_settings.get("input_lock", True)))))),
-            selected_monitors=list(data.get("selected_monitors", data.get("selectedMonitors", 
-                saved_settings.get("selected_monitors", [])))),
+            multi_monitor=bool(data.get("multi_monitor", 
+                saved_settings.get("multi_monitor", False))),
+            input_lock=bool(data.get("input_lock", data.get("hard_lock",
+                saved_settings.get("input_lock", True)))),
+            selected_monitors=list(data.get("selected_monitors", 
+                saved_settings.get("selected_monitors", []))),
             volume=int(data.get("volume", 
                 saved_settings.get("volume", 256))),
-            mute_other_audio=bool(data.get("mute_other_audio", data.get("muteOtherAudio",
-                saved_settings.get("mute_other_audio", False)))),
-            click_through=bool(data.get("click_through", data.get("clickThrough",
-                saved_settings.get("click_through", False)))),
+            mute_other_audio=bool(data.get("mute_other_audio",
+                saved_settings.get("mute_other_audio", False))),
+            click_through=bool(data.get("click_through",
+                saved_settings.get("click_through", False))),
             opacity=int(data.get("opacity",
                 saved_settings.get("opacity", 100))),
         )
         
-        logger.info(f"Play request: input_lock={request.input_lock}, mute_audio={request.mute_other_audio}")
+        logger.info(f"Play request accepted: {video_url[:60]}...")
         
         if self.server_instance:
             self.server_instance.play_requested.emit(request)
