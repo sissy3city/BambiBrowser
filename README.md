@@ -79,7 +79,7 @@ pip install -r requirements.txt
 
 3. **Install browser extension** (the fun part!)
    - **Chrome/Chromium**: Open `chrome://extensions/`, flip on "Developer mode" (we're not scared of developer mode!), and load the `extension/` folder like the tech goddess you are! 💃
-   - **Firefox**: Open `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", and change filename from `manifest.firefox.json` to `manifest.json` select it - easy peasy! 🦊
+   - **Firefox**: Open `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", and change filename `extension/manifest.firefox.json` to `extension/manifest.json` select it - easy peasy! 🦊
 
 4. **Run the application** (moment of truth, honey!)
 ```bash
