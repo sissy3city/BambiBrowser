@@ -172,6 +172,7 @@ class VLCController(QObject):
     process_ended = pyqtSignal(int)
     error_occurred = pyqtSignal(str)
     queue_empty = pyqtSignal(int)
+    next_video_started = pyqtSignal(int, str)
     
     def __init__(self, screen_index: int, settings: Dict[str, Any] = None):
         super().__init__()
@@ -185,111 +186,159 @@ class VLCController(QObject):
         self._is_playing = False
         self._mutex = QMutex()
         self._monitor_thread: Optional[VLCProcessMonitor] = None
+        self._current_url: Optional[str] = None
         
-    def start(self, initial_url: str = None):
-        """Start VLC with optional initial URL."""
+    def _start_playback(self, url: str) -> bool:
+        """Internal method to start playback of a single URL."""
         vlc_path = find_vlc()
         if not vlc_path:
             self.error_occurred.emit("VLC not found")
             return False
         
-        with QMutexLocker(self._mutex):
-            vlc_dir = Path(vlc_path).parent
+        vlc_dir = Path(vlc_path).parent
+        plugin_path = get_vlc_plugin_path(vlc_path)
+        
+        self._current_url = url
+        
+        # Build VLC command
+        args = [
+            vlc_path,
+            "--play-and-exit",
+            "--fullscreen",
+            "--video-on-top",
+            "--no-video-title-show",
+            "--no-keyboard-events",
+            "--no-mouse-events",
+            "--key-toggle-fullscreen", "0",
+            "--key-leave-fullscreen", "0",
+            "--key-quit", "0",
+            "--key-play-pause", "0",
+            "--key-stop", "0",
+            "--global-key-quit", "0",
+            "--qt-fullscreen-screennumber", str(self.screen_index),
+            f"--volume={self.volume}",
+            "--no-qt-privacy-ask",
+            "--no-qt-error-dialogs",
+            "--ignore-config",
+        ]
+        
+        if plugin_path:
+            args.extend(["--plugin-path", plugin_path])
+            logger.info(f"Using plugin path: {plugin_path}")
+        
+        if self.no_audio:
+            args.append("--no-audio")
+        
+        args.append(url)
+        
+        logger.info(f"Screen {self.screen_index}: Starting VLC with URL: {url[:80]}...")
+        
+        # Set up environment
+        env = os.environ.copy()
+        if plugin_path:
+            env["VLC_PLUGIN_PATH"] = plugin_path
+        env["PATH"] = str(vlc_dir) + ";" + env.get("PATH", "")
+        
+        try:
+            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             
-            if initial_url:
-                self._queue.append(initial_url)
+            self._process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=creationflags,
+                env=env,
+                cwd=str(vlc_dir),
+            )
             
-            # Get plugin path for portable VLC
-            plugin_path = get_vlc_plugin_path(vlc_path)
+            # Wait a bit and check if process is still running
+            time.sleep(1.0)
             
-            # Build VLC command - using simpler arguments for portable VLC
+            if self._process.poll() is not None:
+                # Process exited quickly - try playlist method
+                stdout, stderr = self._process.communicate(timeout=2)
+                error_msg = stderr.decode('utf-8', errors='ignore')
+                logger.error(f"VLC exited quickly: {error_msg[:200]}")
+                return self._start_with_playlist_single(url, vlc_path, vlc_dir, plugin_path)
+            
+            self._is_playing = True
+            
+            # Apply window properties if needed
+            if self.settings.get("click_through", False) or self.settings.get("opacity", 100) < 100:
+                QTimer.singleShot(1000, self._apply_window_properties)
+            
+            # Start monitor thread
+            self._monitor_thread = VLCProcessMonitor(self.screen_index, self._process)
+            self._monitor_thread.process_ended.connect(self._on_process_ended)
+            self._monitor_thread.start()
+            
+            logger.info(f"Screen {self.screen_index}: VLC playback started")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Exception starting VLC: {e}")
+            return False
+    
+    def _start_with_playlist_single(self, url: str, vlc_path: str, vlc_dir: Path, plugin_path: Optional[str]) -> bool:
+        """Fallback: use a playlist file for single URL."""
+        try:
+            self._playlist_file = Path(tempfile.gettempdir()) / f"bambi_playlist_{self.screen_index}.m3u"
+            with open(self._playlist_file, 'w', encoding='utf-8') as f:
+                f.write("#EXTM3U\n")
+                f.write(f"{url}\n")
+            
             args = [
                 vlc_path,
+                str(self._playlist_file),
                 "--play-and-exit",
                 "--fullscreen",
                 "--video-on-top",
                 "--no-video-title-show",
-                "--no-keyboard-events",
-                "--no-mouse-events",
-                "--key-toggle-fullscreen", "0",
-                "--key-leave-fullscreen", "0",
-                "--key-quit", "0",
-                "--key-play-pause", "0",
-                "--key-stop", "0",
-                "--global-key-quit", "0",
-                "--qt-fullscreen-screennumber", str(self.screen_index),
                 f"--volume={self.volume}",
-                "--no-qt-privacy-ask",
-                "--no-qt-error-dialogs",
-                "--ignore-config",  # Ignore any existing config
+                "--ignore-config",
             ]
             
-            # Add plugin path if found (critical for portable VLC)
             if plugin_path:
                 args.extend(["--plugin-path", plugin_path])
-                logger.info(f"Using plugin path: {plugin_path}")
             
             if self.no_audio:
                 args.append("--no-audio")
             
-            # Add the URL
-            if self._queue:
-                url = self._queue[0]
-                args.append(url)
-                logger.info(f"Playing URL: {url[:80]}...")
-            
-            logger.info(f"Starting VLC on screen {self.screen_index}")
-            logger.info(f"VLC command: {' '.join(args[:10])}...")
-            
-            # Set up environment for portable VLC
             env = os.environ.copy()
             if plugin_path:
                 env["VLC_PLUGIN_PATH"] = plugin_path
             env["PATH"] = str(vlc_dir) + ";" + env.get("PATH", "")
             
-            try:
-                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-                
-                # Use PIPE to capture output for debugging
-                self._process = subprocess.Popen(
-                    args,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    creationflags=creationflags,
-                    env=env,
-                    cwd=str(vlc_dir),
-                )
-                
-                # Wait a bit and check if process is still running
-                time.sleep(1.0)
-                
-                if self._process.poll() is not None:
-                    # Process exited, capture error output
-                    stdout, stderr = self._process.communicate(timeout=2)
-                    error_msg = stderr.decode('utf-8', errors='ignore')
-                    logger.error(f"VLC exited quickly with code {self._process.returncode}")
-                    logger.error(f"VLC stderr: {error_msg[:500]}")
-                    
-                    # Try alternative method with playlist
-                    return self._start_with_playlist(vlc_path, vlc_dir, plugin_path)
-                
-                self._is_playing = True
-                
-                # Apply window properties if needed
-                if self.settings.get("click_through", False) or self.settings.get("opacity", 100) < 100:
-                    QTimer.singleShot(1000, self._apply_window_properties)
-                
-                self._monitor_thread = VLCProcessMonitor(self.screen_index, self._process)
-                self._monitor_thread.process_ended.connect(self._on_process_ended)
-                self._monitor_thread.start()
-                
-                logger.info(f"VLC launched successfully on screen {self.screen_index}")
-                return True
-                
-            except Exception as e:
-                logger.error(f"Exception starting VLC: {e}")
-                self.error_occurred.emit(str(e))
+            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            
+            self._process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=creationflags,
+                env=env,
+                cwd=str(vlc_dir),
+            )
+            
+            time.sleep(1.0)
+            
+            if self._process.poll() is not None:
+                stdout, stderr = self._process.communicate(timeout=2)
+                error_msg = stderr.decode('utf-8', errors='ignore')
+                logger.error(f"Playlist method failed: {error_msg[:200]}")
                 return False
+            
+            self._is_playing = True
+            self._monitor_thread = VLCProcessMonitor(self.screen_index, self._process)
+            self._monitor_thread.process_ended.connect(self._on_process_ended)
+            self._monitor_thread.start()
+            
+            logger.info(f"Screen {self.screen_index}: VLC playback started (playlist method)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Exception in playlist start: {e}")
+            return False
     
     def _apply_window_properties(self):
         """Apply window transparency and click-through."""
@@ -334,120 +383,84 @@ class VLCController(QObject):
         except Exception as e:
             logger.error(f"Failed to apply window properties: {e}")
     
-    def _start_with_playlist(self, vlc_path: str, vlc_dir: Path, plugin_path: Optional[str]) -> bool:
-        """Fallback: use a playlist file with minimal arguments."""
-        try:
-            self._playlist_file = Path(tempfile.gettempdir()) / f"bambi_playlist_{self.screen_index}.m3u"
-            with open(self._playlist_file, 'w', encoding='utf-8') as f:
-                f.write("#EXTM3U\n")
-                for url in self._queue:
-                    f.write(f"{url}\n")
-            
-            # Minimal arguments for maximum compatibility
-            args = [
-                vlc_path,
-                str(self._playlist_file),
-                "--play-and-exit",
-                "--fullscreen",
-                "--video-on-top",
-                "--no-video-title-show",
-                f"--volume={self.volume}",
-                "--ignore-config",
-            ]
-            
-            if plugin_path:
-                args.extend(["--plugin-path", plugin_path])
-            
-            if self.no_audio:
-                args.append("--no-audio")
-            
-            logger.info(f"Trying playlist method with args: {args[:8]}...")
-            
-            env = os.environ.copy()
-            if plugin_path:
-                env["VLC_PLUGIN_PATH"] = plugin_path
-            env["PATH"] = str(vlc_dir) + ";" + env.get("PATH", "")
-            
-            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            
-            self._process = subprocess.Popen(
-                args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=creationflags,
-                env=env,
-                cwd=str(vlc_dir),
-            )
-            
-            time.sleep(1.0)
-            
-            if self._process.poll() is not None:
-                stdout, stderr = self._process.communicate(timeout=2)
-                error_msg = stderr.decode('utf-8', errors='ignore')
-                logger.error(f"Playlist method failed: {error_msg[:500]}")
-                self.error_occurred.emit(f"VLC failed to start. Check that VLC portable has plugins folder.")
-                return False
-            
-            self._is_playing = True
-            self._monitor_thread = VLCProcessMonitor(self.screen_index, self._process)
-            self._monitor_thread.process_ended.connect(self._on_process_ended)
-            self._monitor_thread.start()
-            
-            logger.info(f"VLC launched with playlist on screen {self.screen_index}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Exception in playlist start: {e}")
-            return False
-    
     def _on_process_ended(self, screen_index: int):
-        """Handle process ended."""
+        """Handle process ended - play next in queue if available."""
         logger.info(f"VLC process ended for screen {screen_index}")
         
         with QMutexLocker(self._mutex):
             self._is_playing = False
+            self._current_url = None
             
+            # Clean up playlist file
             if self._playlist_file and self._playlist_file.exists():
                 try:
                     self._playlist_file.unlink()
                 except:
                     pass
-        
-        self.process_ended.emit(screen_index)
-        
-        if len(self._queue) == 0:
-            self.queue_empty.emit(screen_index)
+            
+            # Remove the played video from queue
+            if self._queue:
+                played_url = self._queue.pop(0)
+                logger.info(f"Screen {screen_index}: Finished playing, {len(self._queue)} remaining in queue")
+            
+            # Check if there are more videos in queue
+            if self._queue:
+                # Play next video automatically
+                next_url = self._queue[0]
+                logger.info(f"Screen {screen_index}: Auto-playing next video from queue")
+                
+                # Start playing the next video
+                success = self._start_playback(next_url)
+                if success:
+                    self.next_video_started.emit(screen_index, next_url)
+                else:
+                    logger.error(f"Screen {screen_index}: Failed to start next video")
+                    self._queue.clear()
+                    self.process_ended.emit(screen_index)
+                    self.queue_empty.emit(screen_index)
+            else:
+                # Queue is empty
+                logger.info(f"Screen {screen_index}: Queue empty, playback finished")
+                self.process_ended.emit(screen_index)
+                self.queue_empty.emit(screen_index)
+    
+    def start(self, initial_url: str = None) -> bool:
+        """Start VLC with optional initial URL."""
+        with QMutexLocker(self._mutex):
+            if initial_url:
+                self._queue.append(initial_url)
+            
+            if not self._queue:
+                logger.warning(f"Screen {self.screen_index}: No URL to play")
+                return False
+            
+            url = self._queue[0]
+            return self._start_playback(url)
     
     def add_to_queue(self, url: str):
         """Add URL to queue."""
         with QMutexLocker(self._mutex):
             self._queue.append(url)
-            
-            if not self._is_playing:
-                self.start()
-            
             logger.info(f"Screen {self.screen_index}: Added to queue ({len(self._queue)} total)")
+            
+            if not self._is_playing and self._queue:
+                # Start playing if not already playing
+                self._start_playback(self._queue[0])
     
     def skip(self):
         """Skip current video."""
         with QMutexLocker(self._mutex):
-            if self._queue:
-                self._queue.pop(0)
-                
-                if self._queue:
-                    if self._process and self._process.poll() is None:
-                        self._process.kill()
-                        time.sleep(0.2)
-                    self.start()
-                    logger.info(f"Screen {self.screen_index}: Skipped, {len(self._queue)} remaining")
-                else:
-                    logger.info(f"Screen {self.screen_index}: Queue empty after skip")
-                    self.queue_empty.emit(self.screen_index)
+            if self._process and self._process.poll() is None:
+                logger.info(f"Screen {self.screen_index}: Skipping current video")
+                self._process.kill()
+                time.sleep(0.2)
+            # _on_process_ended will handle playing next
     
     def clear_queue(self):
         """Clear queue."""
         with QMutexLocker(self._mutex):
             self._queue.clear()
+            logger.info(f"Screen {self.screen_index}: Queue cleared")
     
     def stop(self):
         """Stop VLC process."""
@@ -462,7 +475,9 @@ class VLCController(QObject):
                 if self._process.poll() is None:
                     self._process.kill()
             self._is_playing = False
+            self._current_url = None
             self._queue.clear()
+            logger.info(f"Screen {self.screen_index}: Stopped")
     
     @property
     def is_playing(self) -> bool:
@@ -471,6 +486,10 @@ class VLCController(QObject):
     @property
     def queue_size(self) -> int:
         return len(self._queue)
+    
+    @property
+    def current_url(self) -> Optional[str]:
+        return self._current_url
 
 
 class SeamlessPlaybackManager(QObject):
@@ -479,6 +498,7 @@ class SeamlessPlaybackManager(QObject):
     all_finished = pyqtSignal()
     error_occurred = pyqtSignal(str)
     queue_updated = pyqtSignal(int, int)
+    next_video_started = pyqtSignal(int, str)
     
     def __init__(self, hard_lock: HardLock, settings: Dict[str, Any] = None):
         super().__init__()
@@ -502,6 +522,7 @@ class SeamlessPlaybackManager(QObject):
             controller.process_ended.connect(self._on_process_ended)
             controller.error_occurred.connect(self._on_error)
             controller.queue_empty.connect(self._on_queue_empty)
+            controller.next_video_started.connect(self._on_next_video_started)
             
             self._controllers[idx] = controller
             success = controller.start(url)
@@ -565,9 +586,11 @@ class SeamlessPlaybackManager(QObject):
         logger.info(f"Screen {screen_index}: VLC process ended")
         
         if screen_index in self._controllers:
-            del self._controllers[screen_index]
-        
-        self._active_screens -= 1
+            # Check if controller has more videos in queue
+            controller = self._controllers[screen_index]
+            if controller.queue_size == 0:
+                del self._controllers[screen_index]
+                self._active_screens -= 1
         
         if self._active_screens <= 0:
             self._release_hard_lock()
@@ -577,6 +600,11 @@ class SeamlessPlaybackManager(QObject):
     def _on_queue_empty(self, screen_index: int):
         """Queue empty."""
         logger.info(f"Screen {screen_index}: Queue empty")
+    
+    def _on_next_video_started(self, screen_index: int, url: str):
+        """Next video started in queue."""
+        logger.info(f"Screen {screen_index}: Next video started: {url[:60]}...")
+        self.next_video_started.emit(screen_index, url)
     
     def _release_hard_lock(self):
         """Release hard lock."""
@@ -591,7 +619,7 @@ class SeamlessPlaybackManager(QObject):
         self.error_occurred.emit(msg)
     
     def skip_all(self):
-        """Skip current video."""
+        """Skip current video on all screens."""
         for controller in self._controllers.values():
             controller.skip()
     
@@ -603,6 +631,11 @@ class SeamlessPlaybackManager(QObject):
         self._active_screens = 0
         self._release_hard_lock()
         self._audio_manager.unmute_other_apps()
+    
+    def clear_queue(self):
+        """Clear queue on all controllers."""
+        for controller in self._controllers.values():
+            controller.clear_queue()
     
     @property
     def is_playing(self) -> bool:
@@ -646,6 +679,15 @@ class VideoPlayer(QObject):
         self._selected_monitors: List[int] = []
         self._volume = settings.value("volume", 256, type=int)
         
+        # Safety limits
+        self._max_video_length_enabled = False
+        self._max_video_length_minutes = 10
+        self._max_video_length_action = "Block & Show Warning"
+        self._max_queue_duration_enabled = False
+        self._max_queue_duration_minutes = 60
+        self._max_queue_duration_action = "Reject New Videos"
+        self._total_queue_duration_minutes = 0  # Track cumulative queue duration
+        
         vlc = find_vlc()
         if vlc:
             logger.info(f"VideoPlayer initialized - VLC: {vlc}")
@@ -683,6 +725,13 @@ class VideoPlayer(QObject):
             "multi_monitor": self._multi_monitor,
             "selected_monitors": self._selected_monitors.copy(),
             "volume": self._volume,
+            # Safety limits
+            "max_video_length_enabled": self._max_video_length_enabled,
+            "max_video_length_minutes": self._max_video_length_minutes,
+            "max_video_length_action": self._max_video_length_action,
+            "max_queue_duration_enabled": self._max_queue_duration_enabled,
+            "max_queue_duration_minutes": self._max_queue_duration_minutes,
+            "max_queue_duration_action": self._max_queue_duration_action,
         }
     
     def update_settings(self, **kwargs):
@@ -702,6 +751,21 @@ class VideoPlayer(QObject):
             self._selected_monitors = list(kwargs.get("selected_monitors", []))
         if "volume" in kwargs:
             self._volume = max(0, min(256, int(kwargs["volume"])))
+        
+        # Safety limits
+        if "max_video_length_enabled" in kwargs:
+            self._max_video_length_enabled = bool(kwargs["max_video_length_enabled"])
+        if "max_video_length_minutes" in kwargs:
+            self._max_video_length_minutes = max(5, int(kwargs["max_video_length_minutes"]))
+        if "max_video_length_action" in kwargs:
+            self._max_video_length_action = str(kwargs["max_video_length_action"])
+        
+        if "max_queue_duration_enabled" in kwargs:
+            self._max_queue_duration_enabled = bool(kwargs["max_queue_duration_enabled"])
+        if "max_queue_duration_minutes" in kwargs:
+            self._max_queue_duration_minutes = max(30, int(kwargs["max_queue_duration_minutes"]))
+        if "max_queue_duration_action" in kwargs:
+            self._max_queue_duration_action = str(kwargs["max_queue_duration_action"])
     
     def get_available_monitors(self) -> List[int]:
         return list(range(len(QGuiApplication.screens())))
@@ -715,6 +779,7 @@ class VideoPlayer(QObject):
             self.error_occurred.emit("VLC not found")
             return False
         
+        # Determine which monitors to use
         monitors = self._selected_monitors if (self._multi_monitor and self._selected_monitors) else [0]
         
         logger.info(f"Using monitors: {monitors}")
@@ -724,23 +789,92 @@ class VideoPlayer(QObject):
             self._manager.all_finished.connect(self._on_playback_finished)
             self._manager.error_occurred.connect(self._on_error)
             self._manager.queue_updated.connect(self._on_queue_updated)
+            self._manager.next_video_started.connect(self._on_next_video_started)
             
             if self._manager.start_playback(url, monitors):
                 self._is_playing = True
                 self._current_monitors = monitors
                 self._started_at = time.time()
+                
+                # Start video length timeout monitor if enabled
+                if self._max_video_length_enabled:
+                    self._start_video_length_monitor()
+                
                 self.status_changed.emit(True)
                 return True
             else:
                 self._manager = None
                 return False
         else:
-            self._manager.add_to_queue(url, monitors)
+            # Video already playing - add to queue on the same monitors currently playing
+            queue_monitors = self._current_monitors if self._current_monitors else [0]
+            logger.info(f"Adding to queue on current monitors: {queue_monitors}")
+            self._manager.add_to_queue(url, queue_monitors)
             self.queue_updated.emit(self.queue_size)
             return True
     
+    def _start_video_length_monitor(self):
+        """Start a timer to check video length limit."""
+        max_seconds = self._max_video_length_minutes * 60
+        tolerance_seconds = 2 * 60  # ±2 minutes tolerance
+        
+        logger.info(f"Video length monitor started: {self._max_video_length_minutes}m (±2m)")
+        
+        timer = QTimer()
+        timer.timeout.connect(lambda: self._check_video_length(timer))
+        timer.start(30000)  # Check every 30 seconds
+        
+        if not hasattr(self, '_length_timers'):
+            self._length_timers = []
+        self._length_timers.append(timer)
+    
+    def _check_video_length(self, timer):
+        """Check if current video has exceeded max length."""
+        if not self._is_playing or not self._started_at:
+            timer.stop()
+            return
+        
+        elapsed_seconds = int(time.time() - self._started_at)
+        max_seconds = self._max_video_length_minutes * 60
+        tolerance_seconds = 2 * 60  # ±2 minutes tolerance
+        
+        # Format elapsed time
+        if elapsed_seconds < 60:
+            elapsed_display = f"{elapsed_seconds}s"
+        else:
+            minutes = elapsed_seconds // 60
+            seconds = elapsed_seconds % 60
+            elapsed_display = f"{minutes}m {seconds}s" if seconds > 0 else f"{minutes}m"
+        
+        min_acceptable = max_seconds - tolerance_seconds
+        max_acceptable = max_seconds + tolerance_seconds
+        
+        if elapsed_seconds > max_acceptable:
+            logger.warning(f"Video length limit exceeded: {elapsed_display} > {self._max_video_length_minutes}m")
+            logger.info(f"Executing action: {self._max_video_length_action}")
+            
+            if self._max_video_length_action == "Stop Playback":
+                self.stop()
+                logger.info("Playback stopped due to video length limit")
+            
+            elif self._max_video_length_action == "Auto-Skip Video":
+                if self._manager:
+                    self._manager.skip_all()
+                logger.info("Video skipped due to length limit")
+            
+            elif self._max_video_length_action == "Block & Show Warning":
+                self.stop()
+                logger.warning("Video blocked: length limit exceeded")
+            
+            timer.stop()
+    
     def _on_queue_updated(self, screen_index: int, queue_size: int):
         self.queue_updated.emit(self.queue_size)
+    
+    def _on_next_video_started(self, screen_index: int, url: str):
+        """Next video started - reset the start time for length monitoring."""
+        self._started_at = time.time()
+        logger.info(f"Next video started, resetting length monitor")
     
     def _on_playback_finished(self):
         self._is_playing = False
@@ -762,6 +896,13 @@ class VideoPlayer(QObject):
             self._manager = None
         self._is_playing = False
         self._current_monitors = []
+        
+        # Stop length monitor timers
+        if hasattr(self, '_length_timers'):
+            for timer in self._length_timers:
+                timer.stop()
+            self._length_timers.clear()
+        
         self.status_changed.emit(False)
     
     def cleanup(self):

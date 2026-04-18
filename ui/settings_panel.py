@@ -1,15 +1,21 @@
-"""Settings panel with iOS-style toggle switches."""
+"""Unified settings panel with OTP lock."""
 
 import logging
-from typing import Dict, Any
+import json
+from typing import List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QCheckBox, QSlider, QPushButton,
-    QScrollArea
+    QScrollArea, QComboBox, QTabWidget, QMessageBox,
+    QTableWidget, QTableWidgetItem, QHeaderView,
+    QLineEdit, QFileDialog, QTextEdit
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QBrush
+
+from core.settings_manager import SettingsManager, PlaybackSettings, SafetySettings, TextReplacerSettings
+from ui.otp_dialog import OTPDialog
 
 logger = logging.getLogger("BambiBrowser.UI.Settings")
 
@@ -19,10 +25,9 @@ class IOSToggleSwitch(QWidget):
     
     toggled = pyqtSignal(bool)
     
-    def __init__(self, label: str = "", parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self._checked = False
-        self._label = label
         self.setFixedSize(50, 26)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
     
@@ -35,16 +40,15 @@ class IOSToggleSwitch(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(0, 0, self.width(), self.height(), 13, 13)
         
-        knob_color = QColor("#ffffff")
-        painter.setBrush(QBrush(knob_color))
-        
+        painter.setBrush(QBrush(QColor("#ffffff")))
         knob_x = self.width() - 23 if self._checked else 3
         painter.drawEllipse(knob_x, 3, 20, 20)
     
     def mousePressEvent(self, event):
-        self._checked = not self._checked
-        self.update()
-        self.toggled.emit(self._checked)
+        if self.isEnabled():
+            self._checked = not self._checked
+            self.update()
+            self.toggled.emit(self._checked)
     
     def setChecked(self, checked: bool):
         self._checked = checked
@@ -52,15 +56,10 @@ class IOSToggleSwitch(QWidget):
     
     def isChecked(self) -> bool:
         return self._checked
-    
-    def setEnabled(self, enabled: bool):
-        super().setEnabled(enabled)
-        self.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ForbiddenCursor)
-        self.update()
 
 
 class ToggleRow(QWidget):
-    """Row with label and iOS toggle."""
+    """Row with label and toggle."""
     
     toggled = pyqtSignal(bool)
     
@@ -71,24 +70,22 @@ class ToggleRow(QWidget):
         layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(2)
         
-        row_layout = QHBoxLayout()
+        row = QHBoxLayout()
         self.label = QLabel(label)
         self.label.setStyleSheet("font-size: 13px; font-weight: bold; color: #f5f5ff;")
-        row_layout.addWidget(self.label)
-        
-        row_layout.addStretch()
+        row.addWidget(self.label)
+        row.addStretch()
         
         self.toggle = IOSToggleSwitch()
-        self.toggle.toggled.connect(self.toggled.emit)
-        row_layout.addWidget(self.toggle)
-        
-        layout.addLayout(row_layout)
+        self.toggle.toggled.connect(self.toggled)
+        row.addWidget(self.toggle)
+        layout.addLayout(row)
         
         if description:
-            desc_label = QLabel(description)
-            desc_label.setStyleSheet("font-size: 11px; color: #888; padding-left: 2px;")
-            desc_label.setWordWrap(True)
-            layout.addWidget(desc_label)
+            desc = QLabel(description)
+            desc.setStyleSheet("font-size: 11px; color: #888; padding-left: 2px;")
+            desc.setWordWrap(True)
+            layout.addWidget(desc)
         
         self.setLayout(layout)
     
@@ -99,216 +96,41 @@ class ToggleRow(QWidget):
         return self.toggle.isChecked()
     
     def setEnabled(self, enabled: bool):
+        super().setEnabled(enabled)
         self.toggle.setEnabled(enabled)
         self.label.setEnabled(enabled)
 
 
-class MonitorSelector(QWidget):
-    """Monitor selection widget."""
+class SliderWithAction(QWidget):
+    """Slider with action dropdown and dynamic minimum."""
     
-    selection_changed = pyqtSignal(list)
+    value_changed = pyqtSignal(int)
+    action_changed = pyqtSignal(str)
     
-    def __init__(self, parent=None):
+    def __init__(self, label: str, min_val: int, max_val: int, default: int,
+                 actions: List[str], tolerance: int = 2, parent=None):
         super().__init__(parent)
+        
+        self.min_val = min_val
+        self.max_val = max_val
+        self.tolerance = tolerance
         
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 8, 0, 8)
         layout.setSpacing(6)
-        layout.setContentsMargins(20, 0, 0, 0)
         
-        self.refresh_btn = QPushButton("↻ Refresh Monitors")
-        self.refresh_btn.setProperty("class", "secondary")
-        self.refresh_btn.setMaximumWidth(140)
-        layout.addWidget(self.refresh_btn)
+        # Title
+        title = QLabel(label)
+        title.setStyleSheet("font-size: 13px; font-weight: bold; color: #f5f5ff;")
+        layout.addWidget(title)
         
-        self.checkbox_container = QWidget()
-        self.checkbox_layout = QVBoxLayout()
-        self.checkbox_layout.setSpacing(2)
-        self.checkbox_layout.setContentsMargins(0, 0, 0, 0)
-        self.checkbox_container.setLayout(self.checkbox_layout)
-        
-        scroll = QScrollArea()
-        scroll.setWidget(self.checkbox_container)
-        scroll.setWidgetResizable(True)
-        scroll.setMaximumHeight(100)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: 1px solid #333;
-                border-radius: 6px;
-                background-color: #0b0b12;
-            }
-        """)
-        layout.addWidget(scroll)
-        
-        self.setLayout(layout)
-        
-        self._checkboxes = []
-        self._available_monitors = []
-    
-    def set_available_monitors(self, monitors: list):
-        self._available_monitors = monitors
-        self._rebuild_checkboxes()
-    
-    def _rebuild_checkboxes(self):
-        for cb in self._checkboxes:
-            cb.deleteLater()
-        self._checkboxes.clear()
-        
-        for idx in self._available_monitors:
-            cb = QCheckBox(f"Monitor {idx + 1}")
-            cb.setStyleSheet("""
-                QCheckBox {
-                    color: #f5f5ff;
-                    spacing: 6px;
-                    padding: 2px;
-                    font-size: 12px;
-                }
-                QCheckBox::indicator {
-                    width: 16px;
-                    height: 16px;
-                    border-radius: 4px;
-                    border: 2px solid #555;
-                    background: #151521;
-                }
-                QCheckBox::indicator:checked {
-                    background: #ff6bd6;
-                    border-color: #ff6bd6;
-                }
-            """)
-            cb.setProperty("monitor_index", idx)
-            cb.toggled.connect(self._on_selection_changed)
-            self.checkbox_layout.addWidget(cb)
-            self._checkboxes.append(cb)
-    
-    def _on_selection_changed(self):
-        selected = [cb.property("monitor_index") for cb in self._checkboxes if cb.isChecked()]
-        self.selection_changed.emit(selected)
-    
-    def get_selected_monitors(self) -> list:
-        return [cb.property("monitor_index") for cb in self._checkboxes if cb.isChecked()]
-    
-    def set_selected_monitors(self, monitors: list):
-        for cb in self._checkboxes:
-            cb.setChecked(cb.property("monitor_index") in monitors)
-
-
-class SettingsPanel(QWidget):
-    """Settings panel with iOS toggles."""
-    
-    settings_changed = pyqtSignal(dict)
-    
-    def __init__(self, player, hard_lock, parent=None):
-        super().__init__(parent)
-        self.player = player
-        self.hard_lock = hard_lock
-        self._setup_ui()
-        self._load_settings()
-    
-    def _setup_ui(self):
-        main_layout = QVBoxLayout()
-        main_layout.setSpacing(8)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Settings group
-        settings_group = QGroupBox("⚙️ Playback Settings")
-        settings_group.setStyleSheet("""
-            QGroupBox {
-                font-size: 14px;
-                font-weight: bold;
-                color: #ff6bd6;
-                border: 1px solid #333;
-                border-radius: 10px;
-                margin-top: 12px;
-                padding-top: 14px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 14px;
-                padding: 0 8px;
-                background: #0b0b12;
-            }
-        """)
-        settings_layout = QVBoxLayout()
-        settings_layout.setSpacing(8)
-        settings_layout.setContentsMargins(14, 14, 14, 14)
-        
-        # HardLock toggle
-        self.hardlock_row = ToggleRow(
-            "🔒 HardLock - NO ESCAPE",
-            "Blocks ALL keyboard and mouse input system-wide. No way out until playback ends."
-        )
-        self.hardlock_row.toggled.connect(self._on_settings_changed)
-        settings_layout.addWidget(self.hardlock_row)
-        
-        # HardLock warning if no admin
-        import ctypes
-        try:
-            is_admin = ctypes.windll.shell32.IsUserAnAdmin()
-            if not is_admin:
-                warning = QLabel("⚠️ Admin rights required for full HardLock")
-                warning.setStyleSheet("font-size: 11px; color: #ff6b6b; padding-left: 8px;")
-                settings_layout.addWidget(warning)
-        except:
-            pass
-        
-        # Click-through mode
-        self.transparent_row = ToggleRow(
-            "👻 Click-Through Mode",
-            "Video becomes transparent and click-through"
-        )
-        self.transparent_row.toggled.connect(self._on_transparency_toggled)
-        settings_layout.addWidget(self.transparent_row)
-        
-        # Opacity slider (shown only when click-through is on)
-        opacity_layout = QHBoxLayout()
-        opacity_layout.setContentsMargins(20, 0, 0, 0)
-        opacity_layout.addWidget(QLabel("Opacity:"))
-        
-        self.transparency_slider = QSlider(Qt.Orientation.Horizontal)
-        self.transparency_slider.setRange(10, 100)
-        self.transparency_slider.setValue(100)
-        self.transparency_slider.valueChanged.connect(self._on_settings_changed)
-        self.transparency_slider.setEnabled(False)
-        opacity_layout.addWidget(self.transparency_slider)
-        
-        self.transparency_label = QLabel("100%")
-        self.transparency_label.setStyleSheet("font-size: 11px; color: #888; min-width: 35px;")
-        self.transparency_slider.valueChanged.connect(
-            lambda v: self.transparency_label.setText(f"{v}%")
-        )
-        opacity_layout.addWidget(self.transparency_label)
-        opacity_layout.addStretch()
-        
-        self.opacity_widget = QWidget()
-        self.opacity_widget.setLayout(opacity_layout)
-        self.opacity_widget.setVisible(False)
-        settings_layout.addWidget(self.opacity_widget)
-        
-        # Multi-monitor toggle
-        self.multimonitor_row = ToggleRow(
-            "🖥️ Multi-Monitor",
-            "Play video across multiple displays"
-        )
-        self.multimonitor_row.toggled.connect(self._on_multimonitor_toggled)
-        settings_layout.addWidget(self.multimonitor_row)
-        
-        # Monitor selector
-        self.monitor_selector = MonitorSelector()
-        self.monitor_selector.selection_changed.connect(self._on_settings_changed)
-        self.monitor_selector.refresh_btn.clicked.connect(self._refresh_monitors)
-        self.monitor_selector.setVisible(False)
-        settings_layout.addWidget(self.monitor_selector)
-        
-        # Volume slider
-        volume_layout = QHBoxLayout()
-        volume_label = QLabel("🔊 Volume")
-        volume_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #f5f5ff;")
-        volume_layout.addWidget(volume_label)
-        
-        self.volume_slider = QSlider(Qt.Orientation.Horizontal)
-        self.volume_slider.setRange(0, 256)
-        self.volume_slider.setValue(256)
-        self.volume_slider.valueChanged.connect(self._on_settings_changed)
-        self.volume_slider.setStyleSheet("""
+        # Slider
+        slider_layout = QHBoxLayout()
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(min_val, max_val)
+        self.slider.setValue(default)
+        self.slider.valueChanged.connect(self._on_slider_changed)
+        self.slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 height: 4px;
                 background: #26263a;
@@ -326,98 +148,711 @@ class SettingsPanel(QWidget):
                 border-radius: 2px;
             }
         """)
-        volume_layout.addWidget(self.volume_slider)
+        slider_layout.addWidget(self.slider, 1)
         
-        self.volume_label = QLabel("100%")
-        self.volume_label.setStyleSheet("font-size: 11px; color: #888; min-width: 35px;")
-        self.volume_slider.valueChanged.connect(
-            lambda v: self.volume_label.setText(f"{int(v / 256 * 100)}%")
-        )
-        volume_layout.addWidget(self.volume_label)
+        self.value_label = QLabel(str(default))
+        self.value_label.setStyleSheet("font-size: 12px; color: #7dff9a; min-width: 40px;")
+        slider_layout.addWidget(self.value_label)
+        layout.addLayout(slider_layout)
         
-        settings_layout.addLayout(volume_layout)
+        # Range display
+        self.range_label = QLabel()
+        self.range_label.setStyleSheet("font-size: 11px; color: #888; padding-left: 4px;")
+        layout.addWidget(self.range_label)
+        self._update_range_display(default)
         
-        # System status (compact)
-        status_layout = QHBoxLayout()
-        status_layout.setSpacing(15)
+        # Action dropdown
+        action_layout = QHBoxLayout()
+        action_layout.addWidget(QLabel("Action:"))
+        self.action_combo = QComboBox()
+        self.action_combo.addItems(actions)
+        self.action_combo.currentTextChanged.connect(self.action_changed)
+        self.action_combo.setStyleSheet("""
+            QComboBox {
+                background: #26263a;
+                color: #f5f5ff;
+                border: 1px solid #333;
+                border-radius: 4px;
+                padding: 4px;
+            }
+        """)
+        action_layout.addWidget(self.action_combo)
+        action_layout.addStretch()
+        layout.addLayout(action_layout)
         
-        # VLC status
-        self.vlc_label = QLabel()
-        self.vlc_label.setStyleSheet("font-size: 11px;")
-        status_layout.addWidget(self.vlc_label)
+        self.setLayout(layout)
+    
+    def _on_slider_changed(self, value):
+        self.value_label.setText(str(value))
+        self._update_range_display(value)
+        self.value_changed.emit(value)
+    
+    def _update_range_display(self, value):
+        min_range = max(self.min_val, value - self.tolerance)
+        max_range = min(self.max_val, value + self.tolerance)
+        self.range_label.setText(f"Acceptable range: {min_range} - {max_range} (±{self.tolerance})")
+    
+    def value(self) -> int:
+        return self.slider.value()
+    
+    def setValue(self, value: int):
+        self.slider.setValue(value)
+    
+    def action(self) -> str:
+        return self.action_combo.currentText()
+    
+    def setAction(self, action: str):
+        idx = self.action_combo.findText(action)
+        if idx >= 0:
+            self.action_combo.setCurrentIndex(idx)
+    
+    def setMinimum(self, min_val: int):
+        """Update minimum value dynamically."""
+        current = self.slider.value()
+        self.min_val = min_val
+        self.slider.setMinimum(min_val)
+        if current < min_val:
+            self.slider.setValue(min_val)
+        self._update_range_display(self.slider.value())
+
+
+class UnifiedSettingsPanel(QWidget):
+    """
+    Unified settings panel that manages all settings through SettingsManager.
+    All settings are locked/unlocked together with a single OTP.
+    """
+    
+    settings_changed = pyqtSignal()
+    
+    def __init__(self, settings_manager: SettingsManager, parent=None):
+        super().__init__(parent)
+        self._manager = settings_manager
         
-        # Admin status
-        self.admin_label = QLabel()
-        self.admin_label.setStyleSheet("font-size: 11px;")
-        status_layout.addWidget(self.admin_label)
+        self._setup_ui()
+        self._load_from_manager()
+        self._connect_signals()
+        self._update_lock_ui()
+    
+    def _setup_ui(self):
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         
-        status_layout.addStretch()
-        settings_layout.addLayout(status_layout)
+        # Lock status bar
+        self.lock_status = QLabel()
+        self.lock_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lock_status.setStyleSheet("""
+            font-size: 13px;
+            padding: 10px;
+            background: #151521;
+            border-radius: 8px;
+            font-weight: bold;
+        """)
+        main_layout.addWidget(self.lock_status)
         
-        settings_group.setLayout(settings_layout)
-        main_layout.addWidget(settings_group)
+        # Tab widget
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #333;
+                border-radius: 8px;
+                background: #0b0b12;
+            }
+            QTabBar::tab {
+                background: #151521;
+                color: #888;
+                padding: 10px 20px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #1a1a2a;
+                color: #ff6bd6;
+                font-weight: bold;
+            }
+        """)
+        
+        self.tabs.addTab(self._create_playback_tab(), "🎬 Playback")
+        self.tabs.addTab(self._create_safety_tab(), "⏱️ Safety Limits")
+        self.tabs.addTab(self._create_text_replacer_tab(), "🔄 Text Replacer")
+        
+        main_layout.addWidget(self.tabs)
+        
+        # Lock/Unlock button
+        self.lock_btn = QPushButton()
+        self.lock_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 15px;
+                font-weight: bold;
+                padding: 14px;
+                border-radius: 10px;
+            }
+        """)
+        self.lock_btn.clicked.connect(self._on_lock_btn_clicked)
+        main_layout.addWidget(self.lock_btn)
         
         self.setLayout(main_layout)
     
-    def _on_transparency_toggled(self, checked: bool):
+    def _create_playback_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+        layout.setContentsMargins(15, 15, 15, 15)
+        
+        self.hardlock_row = ToggleRow(
+            "🔒 HardLock - NO ESCAPE",
+            "Blocks ALL keyboard and mouse input system-wide during playback"
+        )
+        self.hardlock_row.toggled.connect(self._on_setting_changed)
+        layout.addWidget(self.hardlock_row)
+        
+        self.clickthrough_row = ToggleRow(
+            "👻 Click-Through Mode",
+            "Video becomes transparent and click-through"
+        )
+        self.clickthrough_row.toggled.connect(self._on_clickthrough_toggled)
+        layout.addWidget(self.clickthrough_row)
+        
+        opacity_widget = QWidget()
+        opacity_layout = QHBoxLayout()
+        opacity_layout.setContentsMargins(20, 0, 0, 0)
+        opacity_layout.addWidget(QLabel("Opacity:"))
+        
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(10, 100)
+        self.opacity_slider.setValue(100)
+        self.opacity_slider.valueChanged.connect(self._on_setting_changed)
+        opacity_layout.addWidget(self.opacity_slider)
+        
+        self.opacity_label = QLabel("100%")
+        self.opacity_slider.valueChanged.connect(lambda v: self.opacity_label.setText(f"{v}%"))
+        opacity_layout.addWidget(self.opacity_label)
+        opacity_layout.addStretch()
+        opacity_widget.setLayout(opacity_layout)
+        
+        self.opacity_widget = opacity_widget
+        self.opacity_widget.setVisible(False)
+        layout.addWidget(self.opacity_widget)
+        
+        self.multimonitor_row = ToggleRow(
+            "🖥️ Multi-Monitor",
+            "Play across multiple displays"
+        )
+        self.multimonitor_row.toggled.connect(self._on_setting_changed)
+        layout.addWidget(self.multimonitor_row)
+        
+        volume_layout = QHBoxLayout()
+        volume_layout.addWidget(QLabel("🔊 Volume:"))
+        
+        self.volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.volume_slider.setRange(0, 256)
+        self.volume_slider.setValue(256)
+        self.volume_slider.valueChanged.connect(self._on_setting_changed)
+        volume_layout.addWidget(self.volume_slider)
+        
+        self.volume_label = QLabel("100%")
+        self.volume_slider.valueChanged.connect(lambda v: self.volume_label.setText(f"{int(v/256*100)}%"))
+        volume_layout.addWidget(self.volume_label)
+        layout.addLayout(volume_layout)
+        
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
+    
+    def _create_safety_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(12)
+        layout.setContentsMargins(15, 15, 15, 15)
+        
+        # Max Video Length
+        video_toggle_layout = QHBoxLayout()
+        video_toggle_layout.addWidget(QLabel("📹 Max Video Length"))
+        video_toggle_layout.addStretch()
+        
+        self.video_limit_toggle = IOSToggleSwitch()
+        self.video_limit_toggle.toggled.connect(self._on_video_limit_toggled)
+        video_toggle_layout.addWidget(self.video_limit_toggle)
+        layout.addLayout(video_toggle_layout)
+        
+        self.video_slider = SliderWithAction(
+            "Maximum video length (minutes)",
+            5, 120, 10, tolerance=2,
+            actions=["Block & Show Warning", "Stop Playback", "Auto-Skip Video", "Warn & Allow"]
+        )
+        self.video_slider.value_changed.connect(self._on_video_limit_value_changed)
+        self.video_slider.action_changed.connect(self._on_setting_changed)
+        self.video_slider.setVisible(False)
+        layout.addWidget(self.video_slider)
+        
+        # Separator
+        sep = QLabel()
+        sep.setStyleSheet("height: 1px; background: #333;")
+        layout.addWidget(sep)
+        
+        # Max Queue Duration
+        queue_toggle_layout = QHBoxLayout()
+        queue_toggle_layout.addWidget(QLabel("📋 Max Queue Duration"))
+        queue_toggle_layout.addStretch()
+        
+        self.queue_limit_toggle = IOSToggleSwitch()
+        self.queue_limit_toggle.toggled.connect(self._on_queue_limit_toggled)
+        queue_toggle_layout.addWidget(self.queue_limit_toggle)
+        layout.addLayout(queue_toggle_layout)
+        
+        self.queue_slider = SliderWithAction(
+            "Maximum queue duration (minutes)",
+            30, 600, 60, tolerance=10,
+            actions=["Reject New Videos", "Stop Playback", "Clear Queue", "Warn Only"]
+        )
+        self.queue_slider.value_changed.connect(self._on_setting_changed)
+        self.queue_slider.action_changed.connect(self._on_setting_changed)
+        self.queue_slider.setVisible(False)
+        layout.addWidget(self.queue_slider)
+        
+        # Note about queue limit
+        note = QLabel("💡 Queue duration limit cannot be lower than max video length")
+        note.setStyleSheet("font-size: 11px; color: #666; padding-left: 4px;")
+        layout.addWidget(note)
+        
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
+    
+    def _create_text_replacer_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15)
+        
+        self.tr_enabled_row = ToggleRow(
+            "🔄 Enable Text Replacer",
+            "System-wide text replacement (requires AutoHotkey)"
+        )
+        self.tr_enabled_row.toggled.connect(self._on_setting_changed)
+        layout.addWidget(self.tr_enabled_row)
+        
+        self.ahk_status = QLabel()
+        self.ahk_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.ahk_status.setStyleSheet("font-size: 11px; padding: 4px;")
+        layout.addWidget(self.ahk_status)
+        
+        table_label = QLabel("📝 Replacement Rules")
+        table_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #ff6bd6;")
+        layout.addWidget(table_label)
+        
+        self.rules_table = QTableWidget()
+        self.rules_table.setColumnCount(3)
+        self.rules_table.setHorizontalHeaderLabels(["Trigger", "Replacement", ""])
+        self.rules_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.rules_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.rules_table.setColumnWidth(2, 50)
+        self.rules_table.setMinimumHeight(200)
+        self.rules_table.setStyleSheet("""
+            QTableWidget {
+                background: #151521;
+                border: 1px solid #333;
+                border-radius: 6px;
+            }
+            QTableWidget::item {
+                padding: 6px;
+                color: #f5f5ff;
+            }
+            QHeaderView::section {
+                background: #1a1a2a;
+                color: #ff6bd6;
+                padding: 8px;
+            }
+        """)
+        layout.addWidget(self.rules_table)
+        
+        add_layout = QHBoxLayout()
+        self.trigger_input = QLineEdit()
+        self.trigger_input.setPlaceholderText("Trigger (e.g., i)")
+        add_layout.addWidget(self.trigger_input)
+        add_layout.addWidget(QLabel("→"))
+        self.replacement_input = QLineEdit()
+        self.replacement_input.setPlaceholderText("Replacement (e.g., Bambi)")
+        add_layout.addWidget(self.replacement_input)
+        add_btn = QPushButton("➕ Add")
+        add_btn.clicked.connect(self._add_rule)
+        add_layout.addWidget(add_btn)
+        layout.addLayout(add_layout)
+        
+        preset_layout = QHBoxLayout()
+        preset_layout.addWidget(QLabel("Presets:"))
+        for name in ["Bambi Basic", "Bambi Full", "Bambi Max"]:
+            btn = QPushButton(name)
+            btn.setStyleSheet("padding: 5px 10px; font-size: 11px;")
+            btn.clicked.connect(lambda _, n=name: self._load_preset(n))
+            preset_layout.addWidget(btn)
+        preset_layout.addStretch()
+        layout.addLayout(preset_layout)
+        
+        action_layout = QHBoxLayout()
+        reset_btn = QPushButton("🔄 Reset Defaults")
+        reset_btn.clicked.connect(self._reset_rules)
+        action_layout.addWidget(reset_btn)
+        clear_btn = QPushButton("🗑 Clear All")
+        clear_btn.clicked.connect(self._clear_rules)
+        action_layout.addWidget(clear_btn)
+        export_btn = QPushButton("📤 Export")
+        export_btn.clicked.connect(self._export_rules)
+        action_layout.addWidget(export_btn)
+        import_btn = QPushButton("📥 Import")
+        import_btn.clicked.connect(self._import_rules)
+        action_layout.addWidget(import_btn)
+        action_layout.addStretch()
+        layout.addLayout(action_layout)
+        
+        self.rule_count_label = QLabel("0 rules")
+        self.rule_count_label.setStyleSheet("font-size: 11px; color: #666;")
+        layout.addWidget(self.rule_count_label)
+        
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
+    
+    def _connect_signals(self):
+        self._manager.lock_state_changed.connect(self._on_lock_state_changed)
+        self._manager.playback_settings_changed.connect(self._on_playback_changed)
+        self._manager.safety_settings_changed.connect(self._on_safety_changed)
+        self._manager.text_replacer_settings_changed.connect(self._on_text_replacer_changed)
+    
+    def _load_from_manager(self):
+        p = self._manager.playback
+        self.hardlock_row.setChecked(p.input_lock)
+        self.clickthrough_row.setChecked(p.click_through)
+        self.opacity_slider.setValue(p.opacity)
+        self.opacity_widget.setVisible(p.click_through)
+        self.multimonitor_row.setChecked(p.multi_monitor)
+        self.volume_slider.setValue(p.volume)
+        
+        s = self._manager.safety
+        self.video_limit_toggle.setChecked(s.max_video_length_enabled)
+        self.video_slider.setValue(s.max_video_length_minutes)
+        self.video_slider.setAction(s.max_video_length_action)
+        self.video_slider.setVisible(s.max_video_length_enabled)
+        
+        self.queue_limit_toggle.setChecked(s.max_queue_duration_enabled)
+        self.queue_slider.setValue(s.max_queue_duration_minutes)
+        self.queue_slider.setAction(s.max_queue_duration_action)
+        self.queue_slider.setVisible(s.max_queue_duration_enabled)
+        
+        # Set queue slider minimum based on video limit
+        if s.max_video_length_enabled:
+            self.queue_slider.setMinimum(s.max_video_length_minutes)
+        
+        tr = self._manager.text_replacer
+        self.tr_enabled_row.setChecked(tr.enabled)
+        self._load_rules_table(tr.rules)
+        self._update_ahk_status()
+    
+    def _load_rules_table(self, rules: dict):
+        self.rules_table.setRowCount(0)
+        for trigger, replacement in rules.items():
+            self._add_rule_to_table(trigger, replacement)
+        self._update_rule_count()
+    
+    def _add_rule_to_table(self, trigger: str, replacement: str):
+        row = self.rules_table.rowCount()
+        self.rules_table.insertRow(row)
+        self.rules_table.setItem(row, 0, QTableWidgetItem(trigger))
+        self.rules_table.setItem(row, 1, QTableWidgetItem(replacement))
+        
+        del_btn = QPushButton("❌")
+        del_btn.setStyleSheet("background: transparent; border: none;")
+        del_btn.clicked.connect(lambda: self._delete_rule(row))
+        self.rules_table.setCellWidget(row, 2, del_btn)
+    
+    def _delete_rule(self, row: int):
+        if self._manager.is_locked:
+            QMessageBox.warning(self, "Settings Locked", "Unlock settings to modify rules.")
+            return
+        self.rules_table.removeRow(row)
+        self._save_rules_from_table()
+        self._update_rule_count()
+    
+    def _add_rule(self):
+        if self._manager.is_locked:
+            QMessageBox.warning(self, "Settings Locked", "Unlock settings to add rules.")
+            return
+        
+        trigger = self.trigger_input.text().strip()
+        replacement = self.replacement_input.text().strip()
+        if not trigger or not replacement:
+            return
+        
+        self._add_rule_to_table(trigger, replacement)
+        self.trigger_input.clear()
+        self.replacement_input.clear()
+        self._save_rules_from_table()
+        self._update_rule_count()
+    
+    def _save_rules_from_table(self):
+        rules = {}
+        for row in range(self.rules_table.rowCount()):
+            trigger = self.rules_table.item(row, 0)
+            replacement = self.rules_table.item(row, 1)
+            if trigger and replacement:
+                rules[trigger.text()] = replacement.text()
+        self._manager.set_text_replacer_rules(rules)
+    
+    def _load_preset(self, preset_name: str):
+        if self._manager.is_locked:
+            QMessageBox.warning(self, "Settings Locked", "Unlock settings to load presets.")
+            return
+        
+        presets = {
+            "Bambi Basic": {"i": "Bambi", "me": "Bambi", "my": "Bambi's", "mine": "Bambi's", "myself": "Bambi"},
+            "Bambi Full": {"i": "Bambi", "me": "Bambi", "my": "Bambi's", "mine": "Bambi's", "myself": "Bambi",
+                          "im": "Bambi is", "ive": "Bambi has", "id": "Bambi would", "ill": "Bambi will",
+                          "we": "Bambi and friends", "our": "Bambi's"},
+            "Bambi Max": {"i": "your dumb bimbo Bambi", "me": "dumb bimbo Bambi", "my": "dumb bimbo Bambi's",
+                         "think": "mindlessly drool about", "brain": "empty dumb bimbo brain"},
+        }
+        
+        if preset_name in presets:
+            for trigger, replacement in presets[preset_name].items():
+                exists = False
+                for row in range(self.rules_table.rowCount()):
+                    if self.rules_table.item(row, 0).text().lower() == trigger.lower():
+                        exists = True
+                        break
+                if not exists:
+                    self._add_rule_to_table(trigger, replacement)
+            self._save_rules_from_table()
+            self._update_rule_count()
+    
+    def _reset_rules(self):
+        if self._manager.is_locked:
+            QMessageBox.warning(self, "Settings Locked", "Unlock settings to reset rules.")
+            return
+        
+        reply = QMessageBox.question(self, "Reset Rules", "Reset to default Bambi rules?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self._manager.reset_text_replacer_to_default()
+            self._load_rules_table(self._manager.text_replacer.rules)
+    
+    def _clear_rules(self):
+        if self._manager.is_locked:
+            QMessageBox.warning(self, "Settings Locked", "Unlock settings to clear rules.")
+            return
+        
+        reply = QMessageBox.question(self, "Clear Rules", "Remove ALL replacement rules?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self._manager.set_text_replacer_rules({})
+            self.rules_table.setRowCount(0)
+            self._update_rule_count()
+    
+    def _export_rules(self):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Rules", "", "JSON (*.json)")
+        if file_path:
+            rules = {}
+            for row in range(self.rules_table.rowCount()):
+                trigger = self.rules_table.item(row, 0)
+                replacement = self.rules_table.item(row, 1)
+                if trigger and replacement:
+                    rules[trigger.text()] = replacement.text()
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(rules, f, indent=2)
+            QMessageBox.information(self, "Export", f"Exported {len(rules)} rules.")
+    
+    def _import_rules(self):
+        if self._manager.is_locked:
+            QMessageBox.warning(self, "Settings Locked", "Unlock settings to import rules.")
+            return
+        
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Rules", "", "JSON (*.json)")
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    rules = json.load(f)
+                
+                reply = QMessageBox.question(self, "Import", f"Found {len(rules)} rules. Replace existing?",
+                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.rules_table.setRowCount(0)
+                
+                for trigger, replacement in rules.items():
+                    exists = False
+                    for row in range(self.rules_table.rowCount()):
+                        if self.rules_table.item(row, 0).text() == trigger:
+                            exists = True
+                            break
+                    if not exists:
+                        self._add_rule_to_table(trigger, replacement)
+                
+                self._save_rules_from_table()
+                self._update_rule_count()
+                QMessageBox.information(self, "Import", f"Imported {len(rules)} rules.")
+            except Exception as e:
+                QMessageBox.critical(self, "Import Failed", str(e))
+    
+    def _update_rule_count(self):
+        count = self.rules_table.rowCount()
+        self.rule_count_label.setText(f"{count} rule{'s' if count != 1 else ''}")
+    
+    def _update_ahk_status(self):
+        from pathlib import Path
+        ahk_paths = [
+            Path(__file__).parent.parent / "ahk" / "AutoHotkeyU64.exe",
+            Path("C:/Program Files/AutoHotkey/AutoHotkey.exe"),
+        ]
+        available = any(p.exists() for p in ahk_paths)
+        
+        if available:
+            self.ahk_status.setText("✅ AutoHotkey Ready")
+            self.ahk_status.setStyleSheet("color: #7dff9a;")
+        else:
+            self.ahk_status.setText("⚠️ AutoHotkey Not Found")
+            self.ahk_status.setStyleSheet("color: #ffcc9b;")
+    
+    def _on_setting_changed(self, *args):
+        if self._manager.is_locked:
+            return
+        
+        # Enforce: max_queue_duration >= max_video_length
+        if self.queue_limit_toggle.isChecked() and self.video_limit_toggle.isChecked():
+            video_limit = self.video_slider.value()
+            queue_limit = self.queue_slider.value()
+            
+            if queue_limit < video_limit:
+                self.queue_slider.setValue(video_limit)
+                logger.info(f"Adjusted queue duration from {queue_limit}m to {video_limit}m (must be >= video limit)")
+        
+        self._manager.update_playback(
+            input_lock=self.hardlock_row.isChecked(),
+            click_through=self.clickthrough_row.isChecked(),
+            opacity=self.opacity_slider.value(),
+            multi_monitor=self.multimonitor_row.isChecked(),
+            volume=self.volume_slider.value()
+        )
+        
+        self._manager.update_safety(
+            max_video_length_enabled=self.video_limit_toggle.isChecked(),
+            max_video_length_minutes=self.video_slider.value(),
+            max_video_length_action=self.video_slider.action(),
+            max_queue_duration_enabled=self.queue_limit_toggle.isChecked(),
+            max_queue_duration_minutes=self.queue_slider.value(),
+            max_queue_duration_action=self.queue_slider.action()
+        )
+        
+        self._manager.update_text_replacer(
+            enabled=self.tr_enabled_row.isChecked()
+        )
+        
+        self.settings_changed.emit()
+    
+    def _on_clickthrough_toggled(self, checked: bool):
         self.opacity_widget.setVisible(checked)
-        self.transparency_slider.setEnabled(checked)
         if checked:
             self.hardlock_row.setChecked(False)
-            self.hardlock_row.setEnabled(False)
-        else:
-            self.hardlock_row.setEnabled(True)
-        self._on_settings_changed()
+        self._on_setting_changed()
     
-    def _on_multimonitor_toggled(self, checked: bool):
-        self.monitor_selector.setVisible(checked)
+    def _on_video_limit_toggled(self, checked: bool):
+        self.video_slider.setVisible(checked)
         if checked:
-            self._refresh_monitors()
-        self._on_settings_changed()
+            # Update queue slider minimum
+            self.queue_slider.setMinimum(self.video_slider.value())
+        self._on_setting_changed()
     
-    def _refresh_monitors(self):
-        monitors = self.player.get_available_monitors()
-        self.monitor_selector.set_available_monitors(monitors)
+    def _on_video_limit_value_changed(self, value: int):
+        """When video limit changes, update queue slider minimum."""
+        if self.queue_limit_toggle.isChecked():
+            current_queue = self.queue_slider.value()
+            if current_queue < value:
+                self.queue_slider.setValue(value)
+        self.queue_slider.setMinimum(value)
+        self._on_setting_changed()
     
-    def _on_settings_changed(self):
-        self.settings_changed.emit(self.get_settings())
-    
-    def _load_settings(self):
-        settings = self.player.settings
-        self.hardlock_row.setChecked(settings.get("input_lock", True))
-        self.transparent_row.setChecked(settings.get("click_through", False))
-        self.transparency_slider.setValue(settings.get("opacity", 100))
-        self.multimonitor_row.setChecked(settings.get("multi_monitor", False))
-        self.monitor_selector.set_selected_monitors(settings.get("selected_monitors", []))
-        self.volume_slider.setValue(settings.get("volume", 256))
+    def _on_queue_limit_toggled(self, checked: bool):
+        self.queue_slider.setVisible(checked)
         
-        # Update status
-        if self.player.vlc_available:
-            self.vlc_label.setText("✅ VLC Ready")
-            self.vlc_label.setStyleSheet("font-size: 11px; color: #7dff9a;")
+        if checked and self.video_limit_toggle.isChecked():
+            video_limit = self.video_slider.value()
+            queue_limit = self.queue_slider.value()
+            if queue_limit < video_limit:
+                self.queue_slider.setValue(video_limit)
+            self.queue_slider.setMinimum(video_limit)
+        
+        self._on_setting_changed()
+    
+    def _on_lock_btn_clicked(self):
+        if self._manager.is_locked:
+            self._unlock_settings()
         else:
-            self.vlc_label.setText("❌ VLC Missing")
-            self.vlc_label.setStyleSheet("font-size: 11px; color: #ff6b6b;")
-        
-        import ctypes
-        try:
-            is_admin = ctypes.windll.shell32.IsUserAnAdmin()
-            if is_admin:
-                self.admin_label.setText("🔐 Admin")
-                self.admin_label.setStyleSheet("font-size: 11px; color: #7dff9a;")
-            else:
-                self.admin_label.setText("⚠️ No Admin")
-                self.admin_label.setStyleSheet("font-size: 11px; color: #ffcc9b;")
-        except:
-            self.admin_label.setText("")
+            self._lock_settings()
     
-    def get_settings(self) -> Dict[str, Any]:
-        return {
-            "input_lock": self.hardlock_row.isChecked(),
-            "click_through": self.transparent_row.isChecked(),
-            "opacity": self.transparency_slider.value() if self.transparent_row.isChecked() else 100,
-            "multi_monitor": self.multimonitor_row.isChecked(),
-            "selected_monitors": self.monitor_selector.get_selected_monitors() 
-                if self.multimonitor_row.isChecked() else [],
-            "volume": self.volume_slider.value(),
-        }
+    def _lock_settings(self):
+        dialog = OTPDialog(mode="set", parent=self)
+        if dialog.exec() == OTPDialog.DialogCode.Accepted:
+            otp = dialog.get_otp()
+            self._manager.lock_with_otp(otp)
+            QMessageBox.information(self, "Settings Locked",
+                "All settings are now locked!\n\n"
+                "The application will use these settings.\n"
+                "You'll need your BambiCode to change anything.")
+    
+    def _unlock_settings(self):
+        stored_hash = self._manager.get_stored_otp_hash()
+        dialog = OTPDialog(mode="verify", stored_hash=stored_hash, parent=self)
+        if dialog.exec() == OTPDialog.DialogCode.Accepted:
+            otp = dialog.get_otp()
+            if self._manager.unlock_with_otp(otp):
+                QMessageBox.information(self, "Settings Unlocked", "You can now modify settings.")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to unlock settings.")
+    
+    def _on_lock_state_changed(self, locked: bool):
+        self._update_lock_ui()
+        
+        enabled = not locked
+        self.hardlock_row.setEnabled(enabled)
+        self.clickthrough_row.setEnabled(enabled)
+        self.opacity_slider.setEnabled(enabled and self.clickthrough_row.isChecked())
+        self.multimonitor_row.setEnabled(enabled)
+        self.volume_slider.setEnabled(enabled)
+        self.video_limit_toggle.setEnabled(enabled)
+        self.video_slider.setEnabled(enabled)
+        self.queue_limit_toggle.setEnabled(enabled)
+        self.queue_slider.setEnabled(enabled)
+        self.tr_enabled_row.setEnabled(enabled)
+        self.rules_table.setEnabled(enabled)
+        self.trigger_input.setEnabled(enabled)
+        self.replacement_input.setEnabled(enabled)
+    
+    def _update_lock_ui(self):
+        if self._manager.is_locked:
+            self.lock_status.setText("🔒 SETTINGS LOCKED - Enter BambiCode to modify")
+            self.lock_status.setStyleSheet("""
+                font-size: 13px; padding: 10px; background: #2a1a1a;
+                border-radius: 8px; color: #ff6b6b; font-weight: bold;
+            """)
+            self.lock_btn.setText("🔐 Enter BambiCode to Unlock")
+            self.lock_btn.setStyleSheet("""
+                QPushButton { background: #26263a; color: #ff6bd6; font-size: 15px;
+                font-weight: bold; padding: 14px; border-radius: 10px; border: 1px solid #ff6bd6; }
+            """)
+        else:
+            self.lock_status.setText("🔓 Settings Unlocked - Click below to lock")
+            self.lock_status.setStyleSheet("""
+                font-size: 13px; padding: 10px; background: #1a2a1a;
+                border-radius: 8px; color: #7dff9a; font-weight: bold;
+            """)
+            self.lock_btn.setText("💾 Save & Lock Settings")
+            self.lock_btn.setStyleSheet("""
+                QPushButton { background: #ff6bd6; color: #0b0b12; font-size: 15px;
+                font-weight: bold; padding: 14px; border-radius: 10px; }
+            """)
+    
+    def _on_playback_changed(self, settings): pass
+    def _on_safety_changed(self, settings): pass
+    def _on_text_replacer_changed(self, settings): pass
+    
+    def get_player_settings(self) -> dict:
+        return self._manager.get_player_settings_dict()
+    
+    def is_locked(self) -> bool:
+        return self._manager.is_locked
