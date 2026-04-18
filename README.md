@@ -6,7 +6,7 @@ OMG, like, literally THE cutest Python-based media browser and player applicatio
 
 - **Desktop Application**: Like, a totally gorgeous Python GUI with an integrated media server that's SO smart! 💅
 - **Browser Extension**: Chrome AND Firefox compatible extension that's literally SO seamless, babe! 
-- **Media Detection**: Automatic detection of all the media content from the hottest websites (HyperboTube, SpankBang) - it just KNOWS! 👀
+- **Media Detection**: Automatic detection of all the media content from the hottest websites (HyperboTube, more in future) - it just KNOWS! 👀
 - **Local Server**: A super cute built-in server that handles all your media requests and streaming! Like, hello, efficiency! 
 - **Media Player**: VLC-based playback with like, CRAZY advanced controls - talk about feature-rich, bestie! 🎬
 - **AutoHotkey Integration**: System-level automation and hotkey support because we're THAT extra! 💋
