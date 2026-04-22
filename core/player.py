@@ -215,6 +215,7 @@ class VLCController(QObject):
             "--key-play-pause", "0",
             "--key-stop", "0",
             "--global-key-quit", "0",
+            "--no-one-instance",
             "--qt-fullscreen-screennumber", str(self.screen_index),
             f"--volume={self.volume}",
             "--no-qt-privacy-ask",
@@ -779,9 +780,11 @@ class VideoPlayer(QObject):
             self.error_occurred.emit("VLC not found")
             return False
         
-        # Determine which monitors to use
-        monitors = self._selected_monitors if (self._multi_monitor and self._selected_monitors) else [0]
-        
+        if (self._multi_monitor):
+            monitors = self._selected_monitors or self.get_available_monitors()
+        else:
+            monitors = [0]
+
         logger.info(f"Using monitors: {monitors}")
         
         if not self._is_playing:
