@@ -20,7 +20,7 @@ OMG, like, literally THE cutest Python-based media browser and player applicatio
 
 ```
 BambiBrowser/
-├── bambi_browser.py          # Main application entry point
+├── bambi_browser.pyw         # Main application entry point
 ├── requirements.txt          # Python dependencies
 ├── VERSION                   # Version information
 ├── core/                     # Core Python modules
@@ -48,7 +48,7 @@ BambiBrowser/
 │   └── detectors/            # Media site detectors
 ├── ahk/                      # AutoHotkey scripts and resources
 ├── ffmpeg/                   # FFmpeg binaries
-├── vlc/                      # VLC player resources and plugins
+├── mpv/                      # Player resources and plugins
 └── resources/                # Static resources
 ```
 
@@ -59,7 +59,7 @@ Like, okay, so here's what you're gonna need to make BambiBrowser absolutely SLA
 - Python 3.7+ (newer is like, SO much better, babe!)
 - Windows OS (because AutoHotkey is obsessed with Windows, duh!) 
 - FFmpeg (don't worry, we'll literally download it FOR you on first run! 💕)
-- VLC libraries (bestie, they're already included - you're welcome!) 
+- MPV (bestie, they're already included - you're welcome!) 
 - A modern web browser (Chrome, Firefox, or literally any Chromium-based cutie works!) 🌐
 
 ## 🎀 Installation
@@ -83,7 +83,7 @@ pip install -r requirements.txt
 
 4. **Run the application** (moment of truth, honey!)
 ```bash
-python bambi_browser.py
+python bambi_browser.pyw
 ```
 
 And like, that's literally IT! You're DONE! 🎉✨
