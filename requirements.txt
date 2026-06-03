@@ -7,3 +7,4 @@ screeninfo>=0.8.1
 requests>=2.31.0
 pywin32>=305
 pyinstaller>=6.0.0
+python-mpv>=1.0.0

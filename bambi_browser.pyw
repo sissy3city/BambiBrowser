@@ -22,6 +22,8 @@ from PyQt6.QtCore import Qt, QTimer
 
 from core.utils import get_base_dir, setup_logging
 
+base_dir = Path(__file__).parent
+os.environ["PATH"] = str(base_dir) + os.pathsep + os.environ.get("PATH", "")
 
 def global_exception_handler(exc_type, exc_value, exc_traceback):
     """Handle uncaught exceptions."""

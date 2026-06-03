@@ -189,8 +189,7 @@ class BambiRequestHandler(BaseHTTPRequestHandler):
             duration_seconds, source = estimate_video_duration(video_url)
             
             if duration_seconds is None:
-                logger.info(f"Could not detect duration for: {video_url[:80]}")
-                # ... existing code ...
+                logger.info(f"Could not detect duration for: {video_url[:80]}, allowing by default")
             else:
                 # Better duration formatting
                 if duration_seconds < 60:

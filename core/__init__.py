@@ -2,7 +2,6 @@
 """Core functionality modules for BambiBrowser."""
 
 from core.hard_lock import HardLock
-from core.player import VideoPlayer
 from core.server import BambiServer
 from core.text_replacer import TextReplacer
 from core.utils import get_base_dir, setup_logging
