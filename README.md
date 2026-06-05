@@ -83,7 +83,7 @@ pip install -r requirements.txt
 
 4. **Run the application** (moment of truth, honey!)
 ```bash
-python bambi_browser.py
+python bambi_browser.pyw
 ```
 
 And like, that's literally IT! You're DONE! 🎉✨
