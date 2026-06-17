@@ -20,7 +20,7 @@ OMG, like, literally THE cutest Python-based media browser and player applicatio
 
 ```
 BambiBrowser/
-├── bambi_browser.py          # Main application entry point
+├── bambi_browser.pyw         # Main application entry point
 ├── requirements.txt          # Python dependencies
 ├── VERSION                   # Version information
 ├── core/                     # Core Python modules
