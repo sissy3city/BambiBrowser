@@ -1,4 +1,4 @@
-"""Video player using mpv directly – multi‑screen, sync‑free."""
+"""Video player using mpv directly – multi‑screen, sync‑free, with queue support."""
 
 import os
 import sys
@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
+from collections import deque
 
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QGuiApplication
@@ -53,7 +54,7 @@ class MPVProcess(QObject):
         super().__init__()
         self.screen_index = screen_index
         self.settings = settings
-        self.mute_secondary_audio = mute_secondary_audio  # always True for secondary screens
+        self.mute_secondary_audio = mute_secondary_audio
         self._process: Optional[subprocess.Popen] = None
         self._is_playing = False
         self._mpv_path = get_mpv_path()
@@ -84,7 +85,6 @@ class MPVProcess(QObject):
             "--cache-secs=2.0",
         ]
 
-        # Audio: always mute secondary screens; primary screen uses user volume
         if self.screen_index > 0 and self.mute_secondary_audio:
             cmd.append("--no-audio")
         else:
@@ -112,11 +112,9 @@ class MPVProcess(QObject):
             self._is_playing = True
             logger.info(f"Screen {self.screen_index}: mpv started (PID {self._process.pid})")
 
-            # Apply opacity/click-through after window appears
             if WINDOWS_API and (self.settings.get('click_through') or self.settings.get('opacity', 100) < 100):
                 QTimer.singleShot(800, self._apply_window_properties)
 
-            # Monitor process exit
             QTimer.singleShot(500, self._check_process)
             return True
         except Exception as e:
@@ -125,7 +123,6 @@ class MPVProcess(QObject):
             return False
 
     def _check_process(self):
-        """Poll the process and emit ended signal when it exits."""
         if self._process is None:
             return
         if self._process.poll() is not None:
@@ -135,7 +132,6 @@ class MPVProcess(QObject):
             QTimer.singleShot(500, self._check_process)
 
     def _apply_window_properties(self):
-        """Apply opacity and click‑through using Win32 API."""
         if not WINDOWS_API or not self._process:
             return
         try:
@@ -167,7 +163,6 @@ class MPVProcess(QObject):
             logger.debug(f"Window properties error: {e}")
 
     def stop(self):
-        """Terminate the mpv process."""
         if self._process and self._process.poll() is None:
             self._process.terminate()
             try:
@@ -186,7 +181,7 @@ class MPVProcess(QObject):
 
 
 class SeamlessPlaybackManager(QObject):
-    """Manages multiple mpv instances across screens."""
+    """Manages multiple mpv instances across screens for a single video."""
     all_finished = pyqtSignal()
     error_occurred = pyqtSignal(str)
 
@@ -209,7 +204,6 @@ class SeamlessPlaybackManager(QObject):
         self._active_screens = len(monitors)
 
         for screen in monitors:
-            # Secondary screens always have their audio muted (--no-audio)
             mute_secondary = screen > 0
             player = MPVProcess(
                 screen,
@@ -223,11 +217,9 @@ class SeamlessPlaybackManager(QObject):
                 return False
             self._players[screen] = player
 
-        # Apply HardLock after a short delay
         if self._input_lock_enabled:
             QTimer.singleShot(1000, self._apply_hard_lock)
 
-        # Mute other applications if enabled
         if self._mute_other_audio and is_audio_muting_available():
             if mute_other_applications():
                 self._audio_muted = True
@@ -288,11 +280,13 @@ class SeamlessPlaybackManager(QObject):
         return self._active_screens > 0
 
 
-# ========== VideoPlayer (main interface) ==========
+# ----- VideoPlayer with queue -----
+
 @dataclass
 class QueuedVideo:
     url: str
     settings: Dict[str, Any]
+    duration_seconds: Optional[int] = None  # estimated duration, if known
 
 
 class VideoPlayer(QObject):
@@ -305,9 +299,15 @@ class VideoPlayer(QObject):
         self.hard_lock = hard_lock
         self._manager: Optional[SeamlessPlaybackManager] = None
         self._is_playing = False
-        self._started_at: float = 0.0
+        self._started_at = 0.0
         self._current_monitors: List[int] = []
 
+        # Queue
+        self._queue: deque[QueuedVideo] = deque()
+        self._current_video: Optional[QueuedVideo] = None
+        self._queue_duration_total = 0  # total duration of queued videos (excluding current)
+
+        # Load settings
         from PyQt6.QtCore import QSettings
         settings = QSettings("BambiBrowser", "Settings")
 
@@ -329,19 +329,24 @@ class VideoPlayer(QObject):
         if not get_mpv_path():
             logger.error("mpv.exe not found – playback unavailable")
         else:
-            logger.info("VideoPlayer initialized (mpv direct)")
+            logger.info("VideoPlayer initialized (mpv direct with queue)")
 
+    # ---------- Properties ----------
     @property
     def is_playing(self) -> bool:
         return self._is_playing
 
     @property
-    def vlc_available(self) -> bool:
-        return get_mpv_path() is not None
+    def queue_size(self) -> int:
+        return len(self._queue)
 
     @property
-    def queue_size(self) -> int:
-        return 0   # No queue in this simplified version
+    def queue_duration(self) -> int:
+        return self._queue_duration_total
+
+    @property
+    def vlc_available(self) -> bool:
+        return get_mpv_path() is not None
 
     @property
     def settings(self) -> dict:
@@ -392,58 +397,147 @@ class VideoPlayer(QObject):
     def get_available_monitors(self) -> List[int]:
         return list(range(len(QGuiApplication.screens())))
 
+    # ---------- Playback control ----------
     def play(self, url: str, **kwargs) -> bool:
-        logger.info(f"mpv play() called")
+        """Play a video. If already playing, add to queue (unless queue full)."""
         self.update_settings(**kwargs)
 
-        if not get_mpv_path():
+        if not self.vlc_available:
             self.error_occurred.emit("mpv.exe not found")
             return False
 
+        # Determine monitors
         if self._multi_monitor:
             monitors = self._selected_monitors or self.get_available_monitors()
         else:
             monitors = [0]
 
-        # Stop current playback if any
-        if self._is_playing:
-            self.stop()
+        # Get duration for queue management (optional)
+        duration = None
+        if self._max_video_length_enabled or self._max_queue_duration_enabled:
+            from core.duration_helper import estimate_video_duration
+            dur, _ = estimate_video_duration(url)
+            duration = dur
+
+        # Check video length limit (for current video only)
+        if self._max_video_length_enabled and duration is not None:
+            max_sec = self._max_video_length_minutes * 60
+            if duration > max_sec:
+                action = self._max_video_length_action
+                if action == "Block & Show Warning":
+                    self.error_occurred.emit(f"Video too long: {duration//60}m > {self._max_video_length_minutes}m")
+                    return False
+                elif action == "Auto-Skip Video":
+                    logger.info(f"Skipping long video: {duration//60}m > {max_sec//60}m")
+                    return True  # pretend success, but we skip
+                elif action == "Stop Playback":
+                    self.stop()
+                    self.error_occurred.emit(f"Stopped playback: video exceeds {self._max_video_length_minutes}m")
+                    return False
+                # Warn & Allow: fall through
+
+        # Queue duration check
+        if self._max_queue_duration_enabled and self._is_playing:
+            new_duration = duration or 60  # assume 1 min if unknown
+            if self._queue_duration_total + new_duration > self._max_queue_duration_minutes * 60:
+                action = self._max_queue_duration_action
+                if action == "Reject New Videos":
+                    self.error_occurred.emit("Queue duration limit reached")
+                    return False
+                elif action == "Stop Playback":
+                    self.stop()
+                    self.error_occurred.emit("Playback stopped: queue duration limit exceeded")
+                    return False
+                elif action == "Clear Queue":
+                    self.clear_queue()
+                # Warn Only: continue
+
+        # Create QueuedVideo
+        qv = QueuedVideo(url=url, settings=kwargs.copy(), duration_seconds=duration)
+
+        if not self._is_playing:
+            return self._start_playback(qv, monitors)
+        else:
+            # Add to queue
+            self._queue.append(qv)
+            if duration:
+                self._queue_duration_total += duration
+            logger.info(f"Added to queue: {url[:60]}... (queue size {self.queue_size}, total duration {self.queue_duration}s)")
+            self.queue_updated.emit(self.queue_size)
+            return True
+
+    def _start_playback(self, qv: QueuedVideo, monitors: List[int]) -> bool:
+        """Start playing a QueuedVideo with given monitors."""
+        if self._manager is not None:
+            self._manager.stop_all()
+            self._manager = None
+
+        self._current_video = qv
+        self._current_monitors = monitors
 
         self._manager = SeamlessPlaybackManager(self.hard_lock, self.settings)
         self._manager.all_finished.connect(self._on_playback_finished)
         self._manager.error_occurred.connect(self._on_error)
 
-        if self._manager.start_playback(url, monitors):
+        success = self._manager.start_playback(qv.url, monitors)
+        if success:
             self._is_playing = True
-            self._current_monitors = monitors
             self._started_at = time.time()
             self.status_changed.emit(True)
+            self.queue_updated.emit(self.queue_size)
             return True
         else:
             self._manager = None
             return False
 
     def _on_playback_finished(self):
+        """Called when the current video finishes."""
         self._is_playing = False
-        self._manager = None
-        self._current_monitors = []
-        self.status_changed.emit(False)
-        logger.info("mpv playback finished")
+        self._current_video = None
+
+        if self._queue:
+            next_qv = self._queue.popleft()
+            if next_qv.duration_seconds:
+                self._queue_duration_total -= next_qv.duration_seconds
+            # Start it
+            self._start_playback(next_qv, self._current_monitors)
+        else:
+            self._manager = None
+            self._current_monitors = []
+            self.status_changed.emit(False)
+            self.queue_updated.emit(0)
+            logger.info("Playback finished (queue empty)")
 
     def _on_error(self, msg: str):
         self.error_occurred.emit(msg)
 
     def skip(self):
+        """Skip current video and move to next in queue."""
         if self._manager:
-            self._manager.skip_all()
+            self._manager.skip_all()  # triggers _on_playback_finished
+        else:
+            self.stop()
 
     def stop(self):
+        """Stop all playback and clear queue."""
         if self._manager:
             self._manager.stop_all()
             self._manager = None
         self._is_playing = False
+        self._current_video = None
         self._current_monitors = []
+        self._queue.clear()
+        self._queue_duration_total = 0
         self.status_changed.emit(False)
+        self.queue_updated.emit(0)
+        logger.info("Playback stopped, queue cleared")
+
+    def clear_queue(self):
+        """Clear the queue without stopping current video."""
+        self._queue.clear()
+        self._queue_duration_total = 0
+        self.queue_updated.emit(0)
+        logger.info("Queue cleared")
 
     def cleanup(self):
         self.stop()
@@ -453,6 +547,7 @@ class VideoPlayer(QObject):
             "playing": self._is_playing,
             "position_sec": time.time() - self._started_at if self._is_playing else None,
             "queue_size": self.queue_size,
+            "queue_duration_sec": self.queue_duration,
             "settings": self.settings,
             "vlc_available": self.vlc_available,
         }
