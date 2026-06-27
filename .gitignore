@@ -3,3 +3,7 @@
 
 # Log files
 *.log
+
+#Gag files
+gag_status.txt
+gag.ahk

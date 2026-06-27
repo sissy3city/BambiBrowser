@@ -1,179 +1,221 @@
 # 💖 BambiBrowser 💖
 
-OMG, like, literally THE cutest Python-based media browser and player application with the most adorable browser extension support ever! We're talking AutoHotkey integration, FFmpeg transcoding, AND VLC playback capabilities - basically everything you could ever want and MORE! 🎉
-
-## ✨ Features ✨
-
-- **Desktop Application**: Like, a totally gorgeous Python GUI with an integrated media server that's SO smart! 💅
-- **Browser Extension**: Chrome AND Firefox compatible extension that's literally SO seamless, babe! 
-- **Media Detection**: Automatic detection of all the media content from the hottest websites (HyperboTube, more in future) - it just KNOWS! 👀
-- **Local Server**: A super cute built-in server that handles all your media requests and streaming! Like, hello, efficiency! 
-- **Media Player**: VLC-based playback with like, CRAZY advanced controls - talk about feature-rich, bestie! 🎬
-- **AutoHotkey Integration**: System-level automation and hotkey support because we're THAT extra! 💋
-- **FFmpeg Support**: Video transcoding and format conversion - basically like a makeover for your files! 💄
-- **Settings Management**: Customizable configuration panel with persistent storage - save YOUR preferences, queen! 👑
-- **Text Replacement**: Dynamic text replacement functionality that's literally genius! ✨
-- **Auto-Updates**: Automatic update checking and installation - stay fresh and fabulous, always! 💫
-- **OTP Support**: One-time password dialog for keeping your stuff super secure and protected! 🔐
-
-## Project Structure
-
-```
-BambiBrowser/
-├── bambi_browser.pyw         # Main application entry point
-├── requirements.txt          # Python dependencies
-├── VERSION                   # Version information
-├── core/                     # Core Python modules
-│   ├── ahk_downloader.py     # AutoHotkey installation
-│   ├── ahk_generator.py      # AutoHotkey script generation
-│   ├── auto_updater.py       # Update management
-│   ├── ffmpeg_downloader.py  # FFmpeg setup
-│   ├── player.py             # Media player controls
-│   ├── server.py             # Local HTTP server
-│   ├── settings_manager.py   # Configuration management
-│   ├── text_replacer.py      # Text replacement engine
-│   └── utils.py              # Utility functions
-├── ui/                       # User interface components
-│   ├── main_window.py        # Main application window
-│   ├── settings_panel.py     # Settings interface
-│   ├── tray_icon.py          # System tray integration
-│   └── ...                   # Additional UI modules
-├── extension/                # Browser extension
-│   ├── manifest.json         # Chrome manifest
-│   ├── manifest.firefox.json # Firefox manifest
-│   ├── popup.html            # Extension popup UI
-│   ├── popup.js              # Extension popup logic
-│   ├── content.js            # Content script
-│   ├── background.js         # Background service worker
-│   └── detectors/            # Media site detectors
-├── ahk/                      # AutoHotkey scripts and resources
-├── ffmpeg/                   # FFmpeg binaries
-├── mpv/                      # Player resources and plugins
-└── resources/                # Static resources
-```
-
-## 💻 Requirements
-
-Like, okay, so here's what you're gonna need to make BambiBrowser absolutely SLAY:
-
-- Python 3.7+ (newer is like, SO much better, babe!)
-- Windows OS (because AutoHotkey is obsessed with Windows, duh!) 
-- FFmpeg (don't worry, we'll literally download it FOR you on first run! 💕)
-- MPV (bestie, they're already included - you're welcome!) 
-- A modern web browser (Chrome, Firefox, or literally any Chromium-based cutie works!) 🌐
-
-## 🎀 Installation
-
-Okay bestie, it's like SUPER easy to get this hotness up and running! Follow these adorable little steps:
-
-1. **Clone or download the repository** (literally just grab it!)
-```bash
-git clone https://github.com/yourusername/BambiBrowser.git
-cd BambiBrowser
-```
-
-2. **Install Python dependencies** (this is gonna be SO good!)
-```bash
-pip install -r requirements.txt
-```
-
-3. **Install browser extension** (the fun part!)
-   - **Chrome/Chromium**: Open `chrome://extensions/`, flip on "Developer mode" (we're not scared of developer mode!), and load the `extension/` folder like the tech goddess you are! 💃
-   - **Firefox**: Open `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", and change filename `extension/manifest.firefox.json` to `extension/manifest.json` select it - easy peasy! 🦊
-
-4. **Run the application** (moment of truth, honey!)
-```bash
-python bambi_browser.pyw
-```
-
-And like, that's literally IT! You're DONE! 🎉✨
-
-## 💕 Usage
-
-Like, okay, using BambiBrowser is literally the most fun thing EVER! Let us show you how fabulous this is:
-
-### Desktop Application
-- **Launch that gorgeous application** and watch the main window appear - like magic, but like, TECH magic! ✨
-- **Configure settings in the Settings panel** - customize everything to match YOUR vibe, queen! 👑
-- **Access even MORE options via the system tray icon** - it's like a secret menu of fabulousness! 🎭
-
-### Browser Extension
-- The extension like, AUTOMATICALLY detects all the hottest media sites - it's basically psychic! 🔮
-- **Click the extension icon** to interact with the application like the tech-savvy babe you are!
-- **Media content automatically gets forwarded to the player** - no manual labor required, bestie! 💁
-
-### Settings
-Like, there are SO many adorable things you can customize in three gorgeous tabs:
-- **🎬 Playback Tab**: HardLock (total input control!), Click-Through mode, opacity, multi-monitor support, and volume control - basically everything to customize YOUR perfect playback experience! 🎮
-- **⏱️ Safety Limits Tab**: Set max video length, queue duration limits, and choose what happens when limits are hit - safety first, bestie! 🛡️
-- **🔄 Text Replacer Tab**: Create custom text replacement rules to totally personalize your experience! 💬
-
-## ⚙️ Configuration
-
-Like, your settings are stored in the application's configuration directory, and honestly, they're like the CUTEST settings ever! Key things you can tweak:
-
-- **HardLock & Input Control** - lock down your keyboard and mouse, babe! 🔒
-- **Opacity & Click-Through** - make the video transparent or click-through so you can peek at other stuff! 👻
-- **Volume & Audio** - control your audio levels and mute other apps - who's the boss now? 🔊
-- **Multi-Monitor Support** - spread that hotness across multiple displays! 🖥️
-- **Safety Limits** - set max video length and queue duration for peace of mind! ⏱️
-- **Text Replacer Rules** - customize the text replacement patterns to make it all about YOU! ✨
-
-## 🆘 Troubleshooting (AKA: When Things Get Messy)
-
-Like, sometimes things can be a little finicky, but don't worry babe, we got you! 💋
-
-### Extension not detecting sites
-- **Make sure the extension is like, ENABLED** in your browser - no shade but turn it ON, gurl! 🙄
-- **Verify the local server is running** - check that adorable system tray icon! 
-- **Check browser console for errors** - press F12 and look for the scary red messages (we promise they're not scary once you read them!)
-
-### Media player issues
-- **Verify VLC libraries are present** in the `vlc/` directory - they should be chilling there! 🎬
-- **Check that FFmpeg is properly installed** - it auto-downloads on launch like a total sweetheart! 💕
-- **Review application logs** - they'll literally tell you what's wrong! Like having a therapist for your code! 👨‍⚕️
-
-### Server connection errors
-- **Check your firewall settings** - sometimes it's just being overprotective! 🔥
-- **Verify the configured server port is available** - make sure nothing else is using YOUR port, bestie!
-- **Review server logs** in the application - they spill the tea on what went wrong! ☕
-
-## ⚖️ License (The Boring But Necessary Part)
-
-Okay so like, this project is built on the shoulders of GIANTS, and we gotta give them props! 👑
-
-- **VLC**: Licensed under LGPL 2.1+ (see `vlc/COPYING.txt` - it's like THE ultimate team player!)
-- **FFmpeg**: Licensed under LGPL 2.1+ (varies by codec - it's complicated, like a relationship status!)
-- **AutoHotkey**: Licensed under GPL 2.0 (see `ahk/license.txt` - the OG automation tool!)
-
-Like, seriously though, check out each component's license for the deets! We're all about respecting the legal stuff! 📋✨
-
-## 🌟 Contributing (We WANT Your Fabulousness!)
-
-Like, OMG, we literally LOVE contributions! You're basically a genius if you wanna help! 💖
-
-Just follow these adorable little guidelines:
-
-1. **Fork the repository** - make it YOUR thing, bestie! 👯
-2. **Create a feature branch** - name it something cute like `feature/add-sparkles` ✨
-3. **Make your changes** - work your magic, babe!
-4. **Test thoroughly** - we're perfectionists here! 💅
-5. **Submit a pull request** - show us what you got! 
-
-Like, we promise we'll be nice in code review! Promise! 🤝
-
-## 💬 Support
-
-Like, need help? Got questions? Feature ideas? SPILL! ☕
-
-Open an issue on the project repository and we'll literally get back to you like the awesome devs we are! We're here for you! 💕
+OMG, like, literally THE cutest Python-based media browser and player application with the most adorable browser extension support ever! We're talking **mpv** playback, **AutoHotkey** text replacement and gagging, **HardLock** input blocking, **FFmpeg** duration detection, and a super secure **OTP‑locked settings** panel – basically everything you could ever want and MORE! 🎉
 
 ---
 
-**Version**: Check [VERSION](VERSION) file for like, the MOST current version number ever! 
+## ✨ Features ✨
+
+- **Desktop Application** – A gorgeous PyQt6 GUI with an integrated HTTP server that handles extension requests like a dream. 💅
+- **Browser Extension** – Chrome **and** Firefox compatible! Automatically detects videos on supported sites and sends them to the app (with a browser fallback if the app is offline). 🌐
+- **mpv‑Powered Playback** – Fast, hardware‑accelerated video player that supports **fullscreen**, **multi‑monitor**, **opacity**, **click‑through**, and **HardLock** input lockdown. 🎬
+- **HardLock™** – System‑wide input blocking at the device level (keyboard, mouse, touch). Locks out **everything** during playback – no escape, bestie! 🔒
+- **Audio Control** – Mute other applications automatically while your video plays, so you stay completely immersed. 🔊
+- **Safety Limits** – Set a maximum video length and queue duration. Choose what happens when limits are hit: block, skip, stop playback, or just warn. Stay in control! ⏱️
+- **OTP‑Protected Settings** – Lock your entire configuration with a 6‑digit BambiCode. No code? No changes. Perfect for keeping your settings safe from prying eyes. 🔐
+- **OS‑Level Text Replacement** – Powered by AutoHotkey, this replaces any word you type system‑wide with your custom replacements. Comes with built‑in Bambi presets and fully editable rules. 📖
+- **Bambi Gag™** – Another AutoHotkey gem! Gags your typed messages in Discord (and other apps) by transforming letters into cute syllable‑based gibberish. Can be toggled remotely via a URL or locally. 🔇
+- **Auto‑Updater** – Checks GitHub for new releases, downloads, and installs them with a single click. Stay fresh and fabulous! 💫
+- **Auto‑Elevation** – Requests Administrator rights on Windows so HardLock and AutoHotkey work flawlessly. 🛡️
+- **System Tray** – Runs quietly in the background with a handy tray menu to show/hide the main window or quit.
+
+---
+
+## 📁 Project Structure
+
+```
+BambiBrowser/
+├── bambi_browser.pyw         # Main entry point
+├── requirements.txt          # Python dependencies
+├── VERSION                   # Version info
+├── core/                     # Backend modules
+│   ├── ahk_manager.py        # AutoHotkey download & script management
+│   ├── audio_muter.py        # System audio muting via pycaw
+│   ├── auto_updater.py       # GitHub update checker & installer
+│   ├── duration_helper.py    # Video duration detection (ffprobe, VLC, headers)
+│   ├── ffmpeg_downloader.py  # Downloads ffprobe for accurate duration
+│   ├── gag_manager.py        # Bambi Gag – AutoHotkey‑based text gagging
+│   ├── hard_lock.py          # System‑wide input blocker
+│   ├── player.py             # mpv‑based video player with multi‑screen
+│   ├── server.py             # HTTP server for extension communication
+│   ├── settings_manager.py   # Central settings with OTP lock
+│   ├── text_replacer.py      # OS‑level text replacement (AutoHotkey)
+│   └── utils.py              # Base path, logging setup
+├── ui/                       # PyQt6 UI components
+│   ├── main_window.py        # Main application window
+│   ├── settings_panel.py     # Unified settings (Playback, Safety, TextReplacer, Gag)
+│   ├── otp_dialog.py         # OTP lock/unlock dialog
+│   ├── tray_icon.py          # System tray integration
+│   ├── update_dialog.py      # Update notification & progress
+│   └── styles.py             # Dark theme QSS
+├── extension/                # Browser extension (Chrome & Firefox)
+│   ├── manifest.json         # Chrome manifest (v3)
+│   ├── manifest.firefox.json # Firefox manifest (rename to use)
+│   ├── background.js         # Service worker / background script
+│   ├── content.js            # Main content script (video detection & fallback)
+│   ├── popup.html            # Extension popup UI
+│   ├── popup.js              # Popup logic (enable/disable, server status)
+│   └── detectors/            # Site‑specific video detectors
+│       └── hypnotube.js      # Hypnotube.com detector
+├── ahk/                      # AutoHotkey binaries (auto‑downloaded if missing)
+├── ffmpeg/                   # ffprobe binary (auto‑downloaded if missing)
+├── mpv/                      # mpv player binaries (bundled or system)
+└── resources/                # Icons and static assets
+```
+
+---
+
+## 💻 Requirements
+
+- **Windows** (7, 10, 11 – because AutoHotkey and HardLock are Windows‑native)
+- **Python 3.7+** (newer is better, babe!)
+- **mpv** – bundled with the app (or you can provide your own)
+- **AutoHotkey** – auto‑downloaded on first use (or you can install it manually)
+- **FFmpeg** – auto‑downloads `ffprobe` for accurate video duration detection
+- A modern web browser (Chrome, Firefox, Edge, etc.)
+
+---
+
+## 🎀 Installation
+
+1. **Clone or download the repository**  
+   ```bash
+   git clone https://github.com/sissy3city/BambiBrowser.git
+   cd BambiBrowser
+   ```
+
+2. **Install Python dependencies**  
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Install the browser extension**  
+   - **Chrome/Chromium**:  
+     - Open `chrome://extensions/`  
+     - Enable **Developer mode**  
+     - Click **Load unpacked** and select the `extension/` folder.  
+   - **Firefox**:  
+     - Open `about:debugging#/runtime/this-firefox`  
+     - Click **Load Temporary Add‑on**  
+     - Select any file inside the `extension/` folder (or rename `manifest.firefox.json` to `manifest.json` and load the folder).  
+
+4. **Run the application**  
+   ```bash
+   python bambi_browser.pyw
+   ```  
+   The app will request Administrator rights (if needed) and start with a system tray icon.
+
+---
+
+## 💕 Usage
+
+### Desktop Application
+
+- The main window opens with **three tabs**:
+  1. **🎬 Bambi Player** – Playback settings (HardLock, opacity, click‑through, multi‑monitor, volume, audio muting) and **Safety Limits** (max video length, queue duration).
+  2. **📖 Bambi Dictionary** – Enable OS‑level text replacement, manage your replacement rules, import/export presets.
+  3. **🔇 Bambi Gag** – Enable the gag, set a remote URL for toggling, or use local toggle.
+
+- **Lock your settings** with a 6‑digit BambiCode by clicking the **💾 Save & Lock Settings** button at the bottom. Once locked, no changes can be made without entering the code.
+
+- The **system tray icon** lets you show/hide the window or quit the app.
+
+### Browser Extension
+
+- Navigate to a supported site (e.g., `hypnotube.com`).
+- The extension **automatically detects** the main video and attempts to send it to the desktop app.
+- If the app is **online**, the video will play in fullscreen mpv with all your settings (HardLock, etc.).
+- If the app is **offline**, the extension falls back to **browser fullscreen** with keyboard blocking (limited HardLock) – so you’re never stuck!
+
+- Click the extension icon to see the connection status and toggle the extension on/off.
+
+---
+
+## ⚙️ Configuration
+
+All settings are stored in `QSettings` (Windows Registry) and can be locked with an OTP. Key settings include:
+
+| Category          | Setting                          | Description                                                                 |
+|-------------------|----------------------------------|-----------------------------------------------------------------------------|
+| **Playback**      | HardLock                         | Blocks all system input during playback.                                   |
+|                   | Click‑Through                    | Makes the video window transparent and click‑through.                      |
+|                   | Opacity                          | Transparency level (10–100%) when click‑through is on.                     |
+|                   | Multi‑Monitor                    | Play video across multiple screens.                                        |
+|                   | Mute Other Audio                 | Mutes all other applications during playback (pycaw).                      |
+|                   | Volume                           | Master volume (0–256).                                                     |
+| **Safety**        | Max Video Length                 | Enforce a maximum video duration (5–120 min). Action: Block, Stop, Skip, Warn. |
+|                   | Max Queue Duration               | Limit total queue time (30–600 min). Action: Reject, Stop, Clear, Warn.    |
+| **Text Replacer** | Enable / Disable                 | Turns OS‑level text replacement on/off.                                    |
+|                   | Rules                            | Custom trigger → replacement pairs.                                        |
+|                   | Presets                          | Quick‑load Bambi L1, L2, L3 presets.                                       |
+|                   | Import / Export                  | JSON files.                                                                |
+| **Gag**           | Enable / Disable                 | Turns Bambi Gag on/off.                                                    |
+|                   | Remote URL                       | A URL (Dropbox, etc.) containing `ON` or `OFF` toggles the gag remotely.   |
+|                   | Local Toggle                     | Overrides remote when no URL is set.                                       |
+
+---
+
+## 🆘 Troubleshooting
+
+### Extension not detecting videos
+- Ensure the extension is **enabled** (toggle in popup).
+- Make sure the desktop app is **running** (check system tray).
+- Open the browser console (F12) for any error messages.
+
+### Playback issues
+- Verify that `mpv.exe` is in the `mpv/` folder (or in `PATH`).
+- Check that `ffprobe.exe` is available (auto‑downloads on first launch) – used for duration detection.
+- Review the log file `bambi_browser.log` in the application directory.
+
+### Server connection errors
+- Port `5655` might be blocked by your firewall. Add an exception.
+- Ensure no other application is using port `5655`.
+- The server runs on `127.0.0.1` – it’s local only.
+
+### Text Replacer or Gag not working
+- AutoHotkey must be installed. The app will attempt to download it automatically to the `ahk/` folder. If that fails, install AutoHotkey manually from [autohotkey.com](https://www.autohotkey.com/).
+- Run the app as Administrator – AutoHotkey works better with elevated privileges.
+
+---
+
+## ⚖️ License
+
+BambiBrowser is built on the shoulders of **amazing open‑source projects**. We love and respect their licenses!
+
+- **mpv** – Licensed under GPLv2+ ([mpv.io](https://mpv.io/))
+- **AutoHotkey** – Licensed under GPLv2+ ([autohotkey.com](https://www.autohotkey.com/))
+- **FFmpeg** – Licensed under LGPLv2.1+ (components vary by codec) ([ffmpeg.org](http://ffmpeg.org/))
+- **PyQt6** – Licensed under GPLv3 (Riverbank Computing)
+- **python-mpv** – Licensed under MIT
+- **pycaw** – Licensed under BSD‑3‑Clause
+
+This project itself is released under the **MIT License** – see [LICENSE](LICENSE) for details.
+
+---
+
+## 🌟 Contributing
+
+We **adore** contributions! Whether it’s a bug fix, a new feature, or a pretty icon – we want it! 💖
+
+1. **Fork** the repository.
+2. Create a **feature branch** (`git checkout -b feature/amazing-idea`).
+3. **Commit** your changes (`git commit -m 'Add some amazingness'`).
+4. **Push** to the branch (`git push origin feature/amazing-idea`).
+5. Open a **Pull Request** and tell us all about it!
+
+We promise to be gentle in code review. 🤗
+
+---
+
+## 💬 Support
+
+Have a question? Found a bug? Want to request a new site detector?  
+**Open an issue** on the GitHub repository and we’ll get back to you as soon as we can!
+
+---
 
 **Made with 💋 and lots of ✨ by the Sissy3City ~ Bambi Lana!**
 
 ---
 
-*P.S. - If you're still reading this, you're basically already obsessed! Welcome to the fam, babe! 👯‍♀️💖*
+*P.S. – If you’re reading this, you’re already part of the fam. Welcome, bestie! 👯‍♀️💖*
