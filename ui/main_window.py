@@ -1,4 +1,5 @@
 # ui/main_window.py
+import os
 import logging
 from typing import Optional
 from PyQt6.QtWidgets import (
@@ -6,7 +7,7 @@ from PyQt6.QtWidgets import (
     QLabel, QScrollArea
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtGui import QCloseEvent, QIcon
 
 from core.settings_manager import SettingsManager
 from ui.settings_panel import UnifiedSettingsPanel
@@ -27,9 +28,16 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("BambiBrowser")
         self.setMinimumSize(650, 850)
-#        self.resize(700, 900)
         self.setWindowFlags(Qt.WindowType.Window)
         self.setStyleSheet(DARK_THEME)
+
+        # ----- Set window icon (fixes taskbar icon) -----
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        icon_path = os.path.join(base_dir, "resources", "icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            logger.warning(f"Icon not found: {icon_path}")
 
         self._setup_ui()
         self._connect_signals()

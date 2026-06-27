@@ -12,7 +12,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 logger = logging.getLogger("BambiBrowser.GagManager")
 
-AHK_DOWNLOAD_URL = "https://www.autohotkey.com/download/ahk-u64.zip"
+AHK_DOWNLOAD_URL = "https://www.autohotkey.com/download/1.1/AutoHotkey_1.1.37.02.zip"
 
 
 class GagManager(QObject):

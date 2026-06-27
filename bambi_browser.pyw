@@ -162,8 +162,8 @@ def create_version_file(base_dir, logger):
     if not version_file.exists():
         try:
             with open(version_file, 'w', encoding='utf-8') as f:
-                f.write("6.1.0")
-            logger.info("Created VERSION file with 6.1.0")
+                f.write("6.3.0")   # <-- Updated to 6.3.0
+            logger.info("Created VERSION file with 6.3.0")
         except Exception as e:
             logger.warning(f"Could not create VERSION file: {e}")
 
@@ -185,7 +185,7 @@ class BambiBrowserApp:
         )
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("BambiBrowser")
-        self.app.setApplicationVersion("6.1.0")
+        self.app.setApplicationVersion("6.3.0")   # <-- Updated to 6.3.0
         self.app.setQuitOnLastWindowClosed(False)
 
         # Import core modules

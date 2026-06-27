@@ -4,6 +4,11 @@
 # Log files
 *.log
 
-#Gag files
+# Gag files
 gag_status.txt
 gag.ahk
+
+# build files
+build/
+dist/
+*.spec

@@ -13,9 +13,12 @@ from typing import Dict, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
+# Import get_base_dir
+from core.utils import get_base_dir
+
 logger = logging.getLogger("BambiBrowser.TextReplacer")
 
-AHK_DOWNLOAD_URL = "https://www.autohotkey.com/download/ahk-u64.zip"
+AHK_DOWNLOAD_URL = "https://www.autohotkey.com/download/1.1/AutoHotkey_1.1.37.02.zip"
 
 
 class AHKDownloader(QThread):
@@ -72,8 +75,8 @@ class AHKManager:
             logger.info(f"Using AutoHotkey: {self._ahk_exe}")
 
     def _get_ahk_dir(self) -> Path:
-        base_dir = Path(__file__).parent.parent
-        return base_dir / "ahk"
+        # Use get_base_dir() to locate the bundled ahk folder
+        return Path(get_base_dir()) / "ahk"
 
     def _find_autohotkey(self) -> Optional[str]:
         candidates = [

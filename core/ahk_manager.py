@@ -12,9 +12,12 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, Dict
 
+# Import get_base_dir from core.utils
+from core.utils import get_base_dir
+
 logger = logging.getLogger("BambiBrowser.AHKManager")
 
-AHK_DOWNLOAD_URL = "https://www.autohotkey.com/download/ahk-u64.zip"
+AHK_DOWNLOAD_URL = "https://www.autohotkey.com/download/1.1/AutoHotkey_1.1.37.02.zip"
 
 
 class AHKManager:
@@ -113,16 +116,17 @@ class AHKManager:
 
     def _find_ahk(self) -> Optional[str]:
         """Search for AutoHotkey executable in common locations and bundled folder."""
+        base = Path(get_base_dir())  # <-- FIX: use get_base_dir() for bundled location
         candidates = [
             # System installs
             r"C:\Program Files\AutoHotkey\AutoHotkeyU64.exe",
             r"C:\Program Files\AutoHotkey\AutoHotkey64.exe",
             r"C:\Program Files\AutoHotkey\AutoHotkey.exe",
             r"C:\Program Files (x86)\AutoHotkey\AutoHotkey.exe",
-            # Bundled
-            str(Path(__file__).parent.parent / "ahk" / "AutoHotkeyU64.exe"),
-            str(Path(__file__).parent.parent / "ahk" / "AutoHotkey64.exe"),
-            str(Path(__file__).parent.parent / "ahk" / "AutoHotkey.exe"),
+            # Bundled (next to executable)
+            str(base / "ahk" / "AutoHotkeyU64.exe"),
+            str(base / "ahk" / "AutoHotkey64.exe"),
+            str(base / "ahk" / "AutoHotkey.exe"),
         ]
         for path in candidates:
             if Path(path).exists():
@@ -135,7 +139,7 @@ class AHKManager:
 
     def _download_ahk(self) -> bool:
         """Download and extract AutoHotkey to the bundled `ahk/` folder."""
-        ahk_dir = Path(__file__).parent.parent / "ahk"
+        ahk_dir = Path(get_base_dir()) / "ahk"   # <-- FIX: use get_base_dir()
         ahk_dir.mkdir(parents=True, exist_ok=True)
         zip_path = ahk_dir / "ahk-u64.zip"
 
