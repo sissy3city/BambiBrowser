@@ -407,11 +407,11 @@ class UnifiedSettingsPanel(QWidget):
 
         # Remote URL
         remote_layout = QVBoxLayout()
-        remote_label = QLabel("Remote Status URL (Dropbox direct link):")
+        remote_label = QLabel("Remote Status URL (Notepad.cc direct raw link):")
         remote_label.setStyleSheet("font-size: 12px; color: #ccc;")
         remote_layout.addWidget(remote_label)
         self.gag_remote_input = QLineEdit()
-        self.gag_remote_input.setPlaceholderText("https://www.dropbox.com/s/.../file.txt?dl=1")
+        self.gag_remote_input.setPlaceholderText("https://notepad.cc/raw/...")
         self.gag_remote_input.textChanged.connect(self._on_gag_remote_changed)
         remote_layout.addWidget(self.gag_remote_input)
         hint = QLabel("Leave empty to use local toggle only. The file must contain 'ON' or 'OFF'.")

@@ -14,7 +14,7 @@ OMG, like, literally THE cutest Python-based media browser and player applicatio
 - **Safety Limits** – Set a maximum video length and queue duration. Choose what happens when limits are hit: block, skip, stop playback, or just warn. Stay in control! ⏱️
 - **OTP‑Protected Settings** – Lock your entire configuration with a 6‑digit BambiCode. No code? No changes. Perfect for keeping your settings safe from prying eyes. 🔐
 - **OS‑Level Text Replacement** – Powered by AutoHotkey, this replaces any word you type system‑wide with your custom replacements. Comes with built‑in Bambi presets and fully editable rules. 📖
-- **Bambi Gag™** – Another AutoHotkey gem! Gags your typed messages in Discord (and other apps) by transforming letters into cute syllable‑based gibberish. Can be toggled remotely via a URL or locally. 🔇
+- **Bambi Gag** – Another AutoHotkey gem! Gags your typed messages in Discord (and other apps) by transforming letters into cute syllable‑based gibberish. Can be toggled remotely via a URL or locally. 🔇
 - **Auto‑Updater** – Checks GitHub for new releases, downloads, and installs them with a single click. Stay fresh and fabulous! 💫
 - **Auto‑Elevation** – Requests Administrator rights on Windows so HardLock and AutoHotkey work flawlessly. 🛡️
 - **System Tray** – Runs quietly in the background with a handy tray menu to show/hide the main window or quit.
@@ -150,7 +150,7 @@ All settings are stored in `QSettings` (Windows Registry) and can be locked with
 |                   | Presets                          | Quick‑load Bambi L1, L2, L3 presets.                                       |
 |                   | Import / Export                  | JSON files.                                                                |
 | **Gag**           | Enable / Disable                 | Turns Bambi Gag on/off.                                                    |
-|                   | Remote URL                       | A URL (Dropbox, etc.) containing `ON` or `OFF` toggles the gag remotely.   |
+|                   | Remote URL                       | A URL (Notepad.cc, txt.fyi etc.) containing `ON` or `OFF` toggles the gag remotely.   |
 |                   | Local Toggle                     | Overrides remote when no URL is set.                                       |
 
 ---

@@ -247,7 +247,37 @@ UpdateTray()
 CheckRemoteFlag:
     UrlDownloadToFile, %remoteUrl%, %statusFile%
     FileRead, raw, %statusFile%
+    ; Remove UTF-8 BOM
     raw := RegExReplace(raw, "^\\xEF\\xBB\\xBF")
+    ; ============================================================
+    ; NOTEPAD.CC FIX: Extract text from <pre> tag
+    ; ============================================================
+    ; Method 1: Look for <pre>...</pre> content (notepad.cc style)
+    preStart := InStr(raw, "<pre")
+    if (preStart > 0) {{
+        ; Find the closing > of the opening <pre> tag
+        tagEnd := InStr(raw, ">", , preStart)
+        if (tagEnd > 0) {{
+            preEnd := InStr(raw, "</pre>", , tagEnd)
+            if (preEnd > 0) {{
+                ; Extract everything between > and </pre>
+                content := SubStr(raw, tagEnd + 1, preEnd - tagEnd - 1)
+                ; Strip any remaining HTML tags from the content
+                content := RegExReplace(content, "<[^>]*>", "")
+                ; Remove whitespace
+                content := RegExReplace(content, "[\\r\\n\\t ]", "")
+                if (content = "ON")
+                    gagEnabled := true
+                else if (content = "OFF")
+                    gagEnabled := false
+                WriteState()
+                UpdateTray()
+                return
+            }}
+        }}
+    }}
+    ; Method 2: Fallback – strip all HTML tags and look for ON/OFF
+    raw := RegExReplace(raw, "<[^>]*>", "")
     raw := RegExReplace(raw, "[\\r\\n\\t ]", "")
     if (raw = "ON")
         gagEnabled := true
