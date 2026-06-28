@@ -5,12 +5,14 @@
   "description": "Send videos to BambiBrowser desktop app",
 
   "permissions": [
-    "storage",
-    "https://hypnotube.com/*",
-    "https://*.hypnotube.com/*",
-    "http://127.0.0.1:5655/*",
-    "http://localhost:5655/*"
-  ],
+      "storage",
+      "https://hypnotube.com/*",
+      "https://%2A.hypnotube.com/*",
+      "http://127.0.0.1:5655/*",
+      "http://127.0.0.1/*",
+      "http://localhost/*",
+      "http://localhost:5655/*"
+    ],
 
   "background": {
     "scripts": ["background.js"]
