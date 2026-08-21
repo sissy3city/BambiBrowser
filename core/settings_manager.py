@@ -43,6 +43,16 @@ class GagSettings:
     remote_url: str = ""
     local_toggle: bool = False
 
+@dataclass
+class BambicloudSettings:
+    enabled: bool = True
+    animation_type: str = "spiral"
+    color_scheme: str = "neon"
+    custom_animation_path: str = ""
+    custom_colors: str = "#ff6bd6,#00ff00,#ff00ff"
+    countdown_duration: int = 120   # seconds
+    countdown_enabled: bool = True
+
 class SettingsManager(QObject):
     lock_state_changed = pyqtSignal(bool)
     playback_settings_changed = pyqtSignal(object)
@@ -60,6 +70,7 @@ class SettingsManager(QObject):
         self._safety = SafetySettings()
         self._text_replacer = TextReplacerSettings()
         self._gag = GagSettings()
+        self._bambicloud = BambicloudSettings()
 
         self._text_replacer.rules = {
             "i": "Bambi", "me": "Bambi", "my": "Bambi's", "mine": "Bambi's",
@@ -90,6 +101,10 @@ class SettingsManager(QObject):
     @property
     def gag(self) -> GagSettings:
         return self._gag
+
+    @property
+    def bambicloud(self) -> BambicloudSettings:
+        return self._bambicloud
 
     def get_stored_otp_hash(self) -> Optional[str]:
         hash_val = self._qsettings.value("otp_hash", "")
@@ -208,8 +223,21 @@ class SettingsManager(QObject):
         self.all_settings_changed.emit()
         return True
 
+    def update_bambicloud(self, **kwargs) -> bool:
+        if self._check_locked():
+            return False
+        for key, value in kwargs.items():
+            if hasattr(self._bambicloud, key):
+                setattr(self._bambicloud, key, value)
+        self._save_bambicloud()
+        self.all_settings_changed.emit()
+        return True
+
     def get_gag_settings(self) -> GagSettings:
         return self._gag
+
+    def get_bambicloud_settings(self) -> BambicloudSettings:
+        return self._bambicloud
 
     def _load_all(self):
         saved_hash = self._qsettings.value("otp_hash", "")
@@ -244,6 +272,19 @@ class SettingsManager(QObject):
         self._gag.remote_url = self._qsettings.value("gag/remote_url", "", type=str)
         self._gag.local_toggle = self._qsettings.value("gag/local_toggle", False, type=bool)
 
+        # Bambicloud settings
+        self._bambicloud.enabled = self._qsettings.value("bambicloud/enabled", True, type=bool)
+        self._bambicloud.animation_type = self._qsettings.value("bambicloud/animation_type", "spiral", type=str)
+        self._bambicloud.color_scheme = self._qsettings.value("bambicloud/color_scheme", "neon", type=str)
+        self._bambicloud.custom_animation_path = self._qsettings.value("bambicloud/custom_animation_path", "", type=str)
+        self._bambicloud.custom_colors = self._qsettings.value("bambicloud/custom_colors", "#ff6bd6,#00ff00,#ff00ff", type=str)
+        stored_countdown = self._qsettings.value("bambicloud/countdown_duration_seconds", None, type=int)
+        if stored_countdown is None:
+            legacy_countdown = self._qsettings.value("bambicloud/countdown_duration", 2, type=int)
+            stored_countdown = legacy_countdown * 60
+        self._bambicloud.countdown_duration = max(5, min(300, stored_countdown))
+        self._bambicloud.countdown_enabled = self._qsettings.value("bambicloud/countdown_enabled", True, type=bool)
+
         logger.info(f"Settings loaded - Locked: {self._locked}")
 
     def _save_all(self):
@@ -251,6 +292,7 @@ class SettingsManager(QObject):
         self._save_safety()
         self._save_text_replacer()
         self._save_gag()
+        self._save_bambicloud()
         self._qsettings.sync()
         logger.info("All settings saved")
 
@@ -282,6 +324,15 @@ class SettingsManager(QObject):
         self._qsettings.setValue("gag/remote_url", self._gag.remote_url)
         self._qsettings.setValue("gag/local_toggle", self._gag.local_toggle)
 
+    def _save_bambicloud(self):
+        self._qsettings.setValue("bambicloud/enabled", self._bambicloud.enabled)
+        self._qsettings.setValue("bambicloud/animation_type", self._bambicloud.animation_type)
+        self._qsettings.setValue("bambicloud/color_scheme", self._bambicloud.color_scheme)
+        self._qsettings.setValue("bambicloud/custom_animation_path", self._bambicloud.custom_animation_path)
+        self._qsettings.setValue("bambicloud/custom_colors", self._bambicloud.custom_colors)
+        self._qsettings.setValue("bambicloud/countdown_duration_seconds", self._bambicloud.countdown_duration)
+        self._qsettings.setValue("bambicloud/countdown_enabled", self._bambicloud.countdown_enabled)
+
     def get_player_settings_dict(self) -> Dict[str, Any]:
         return {
             "input_lock": self._playback.input_lock,
@@ -297,4 +348,11 @@ class SettingsManager(QObject):
             "max_queue_duration_enabled": self._safety.max_queue_duration_enabled,
             "max_queue_duration_minutes": self._safety.max_queue_duration_minutes,
             "max_queue_duration_action": self._safety.max_queue_duration_action,
+            "bambicloud_enabled": self._bambicloud.enabled,
+            "bambicloud_animation_type": self._bambicloud.animation_type,
+            "bambicloud_color_scheme": self._bambicloud.color_scheme,
+            "bambicloud_custom_animation_path": self._bambicloud.custom_animation_path,
+            "bambicloud_custom_colors": self._bambicloud.custom_colors,
+            "bambicloud_countdown_duration": self._bambicloud.countdown_duration,
+            "bambicloud_countdown_enabled": self._bambicloud.countdown_enabled,
         }

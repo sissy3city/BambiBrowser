@@ -9,3 +9,5 @@ build/
 dist/
 *.spec
 *.zip
+
+RELEASE_NOTES.md

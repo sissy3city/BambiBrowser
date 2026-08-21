@@ -185,7 +185,10 @@ class HardLock:
         if self._low_level_hook:
             logger.info("Low‑level keyboard hook installed (blocks Win, Alt+Tab, Ctrl+Esc)")
         else:
-            logger.warning("Failed to install low‑level keyboard hook")
+            if self._block_input_active:
+                logger.info("Low‑level keyboard hook unavailable; BlockInput is active")
+            else:
+                logger.warning("Failed to install low‑level keyboard hook")
 
     def _uninstall_low_level_hook(self) -> None:
         """Uninstall the low‑level keyboard hook."""

@@ -1,18 +1,20 @@
 {
   "manifest_version": 2,
   "name": "BambiBrowser",
-  "version": "6.0",
+  "version": "6.4.0",
   "description": "Send videos to BambiBrowser desktop app",
 
   "permissions": [
-      "storage",
-      "https://hypnotube.com/*",
-      "https://%2A.hypnotube.com/*",
-      "http://127.0.0.1:5655/*",
-      "http://127.0.0.1/*",
-      "http://localhost/*",
-      "http://localhost:5655/*"
-    ],
+    "storage",
+    "https://hypnotube.com/*",
+    "https://*.hypnotube.com/*",
+    "https://bambicloud.com/*",
+    "https://*.bambicloud.com/*",
+    "http://127.0.0.1:5655/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "http://localhost:5655/*"
+  ],
 
   "background": {
     "scripts": ["background.js"]
@@ -22,10 +24,13 @@
     {
       "matches": [
         "https://hypnotube.com/*",
-        "https://*.hypnotube.com/*"
+        "https://*.hypnotube.com/*",
+        "https://bambicloud.com/*",
+        "https://*.bambicloud.com/*"
       ],
       "js": [
         "detectors/hypnotube.js",
+        "detectors/bambicloud.js",
         "content.js"
       ],
       "run_at": "document_idle"

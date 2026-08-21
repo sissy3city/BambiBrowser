@@ -8,7 +8,11 @@ OMG, like, literally THE cutest Python-based media browser and player applicatio
 
 - **Desktop Application** – A gorgeous PyQt6 GUI with an integrated HTTP server that handles extension requests like a dream. 💅
 - **Browser Extension** – Chrome **and** Firefox compatible! Automatically detects videos on supported sites and sends them to the app (with a browser fallback if the app is offline). 🌐
+- **BambiCloud Support** – Detects BambiCloud UUID media links, tests MP3/WAV candidates, and plays the first valid direct CDN file through mpv. ☁️
 - **mpv‑Powered Playback** – Fast, hardware‑accelerated video player that supports **fullscreen**, **multi‑monitor**, **opacity**, **click‑through**, and **HardLock** input lockdown. 🎬
+- **BambiCloud Countdown and Visuals** – Optional countdown from 5 seconds to 5 minutes, followed by a fullscreen spiral during BambiCloud audio playback. 🔢
+- **Custom BambiCloud Animation** – Select a local GIF or video file and play it muted in a fullscreen infinite loop. 🖼️
+- **BambiCloud Color Presets** – Neon, pastel, dark, or custom hex colors for the BambiCloud spiral bands and outlines. 🎨
 - **HardLock™** – System‑wide input blocking at the device level (keyboard, mouse, touch). Locks out **everything** during playback – no escape, bestie! 🔒
 - **Audio Control** – Mute other applications automatically while your video plays, so you stay completely immersed. 🔊
 - **Safety Limits** – Set a maximum video length and queue duration. Choose what happens when limits are hit: block, skip, stop playback, or just warn. Stay in control! ⏱️
@@ -43,7 +47,7 @@ BambiBrowser/
 │   └── utils.py              # Base path, logging setup
 ├── ui/                       # PyQt6 UI components
 │   ├── main_window.py        # Main application window
-│   ├── settings_panel.py     # Unified settings (Playback, Safety, TextReplacer, Gag)
+│   ├── settings_panel.py     # Unified settings (Playback, BambiCloud, Safety, TextReplacer, Gag)
 │   ├── otp_dialog.py         # OTP lock/unlock dialog
 │   ├── tray_icon.py          # System tray integration
 │   ├── update_dialog.py      # Update notification & progress
@@ -70,6 +74,7 @@ BambiBrowser/
 - **Windows** (7, 10, 11 – because AutoHotkey and HardLock are Windows‑native)
 - **Python 3.7+** (newer is better, babe!)
 - **mpv** – bundled with the app (or you can provide your own)
+- **Qt Multimedia** – included through PyQt6 for custom fullscreen animations
 - **AutoHotkey** – auto‑downloaded on first use (or you can install it manually)
 - **FFmpeg** – auto‑downloads `ffprobe` for accurate video duration detection
 - A modern web browser (Chrome, Firefox, Edge, etc.)
@@ -105,6 +110,16 @@ BambiBrowser/
    ```  
    The app will request Administrator rights (if needed) and start with a system tray icon.
 
+### Standalone Windows Build
+
+The repository includes a PyInstaller spec that bundles the desktop application, mpv, AutoHotkey, FFmpeg, resources, and Qt Multimedia support:
+
+```powershell
+.\.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm bambi_browser.spec
+```
+
+The standalone application is created under `dist\bambi_browser\bambi_browser.exe`. Keep the bundled `mpv`, `ahk`, `ffmpeg`, and `resources` folders beside the executable. User-selected BambiCloud custom animation files remain external and are selected at runtime.
+
 ---
 
 ## 💕 Usage
@@ -129,6 +144,8 @@ BambiBrowser/
 
 - Click the extension icon to see the connection status and toggle the extension on/off.
 
+- On BambiCloud, the extension extracts the UUID and sends MP3/WAV CDN candidates to the desktop app. The app validates each candidate and uses the first available audio file.
+
 ---
 
 ## ⚙️ Configuration
@@ -143,8 +160,11 @@ All settings are stored in `QSettings` (Windows Registry) and can be locked with
 |                   | Multi‑Monitor                    | Play video across multiple screens.                                        |
 |                   | Mute Other Audio                 | Mutes all other applications during playback (pycaw).                      |
 |                   | Volume                           | Master volume (0–256).                                                     |
-| **Safety**        | Max Video Length                 | Enforce a maximum video duration (5–120 min). Action: Block, Stop, Skip, Warn. |
+| **Safety**        | Max Single File Length           | Enforce a maximum media duration (5–120 min) for Hypnotube and BambiCloud. Action: Block, Stop, Skip, Warn. |
 |                   | Max Queue Duration               | Limit total queue time (30–600 min). Action: Reject, Stop, Clear, Warn.    |
+| **BambiCloud**    | Countdown                        | Optional 5-second to 5-minute preparation countdown for all supported sessions. |
+|                   | Animation                        | Spiral, none, or a local GIF/video in a muted fullscreen loop.              |
+|                   | Color Scheme                     | Changes the BambiCloud spiral band and outline colors; presets or custom hex colors are available. |
 | **Text Replacer** | Enable / Disable                 | Turns OS‑level text replacement on/off.                                    |
 |                   | Rules                            | Custom trigger → replacement pairs.                                        |
 |                   | Presets                          | Quick‑load Bambi L1, L2, L3 presets.                                       |
@@ -166,6 +186,12 @@ All settings are stored in `QSettings` (Windows Registry) and can be locked with
 - Verify that `mpv.exe` is in the `mpv/` folder (or in `PATH`).
 - Check that `ffprobe.exe` is available (auto‑downloads on first launch) – used for duration detection.
 - Review the log file `bambi_browser.log` in the application directory.
+- For BambiCloud, verify the UUID's CDN MP3/WAV file exists. The server logs the selected URL and skips unavailable candidates.
+
+### Standalone build issues
+- Build with the project virtual environment so PyQt6 Multimedia and PyInstaller use the same interpreter.
+- The standalone build still requires Windows and a working display/audio device.
+- Run the executable from its extracted folder so bundled `mpv`, `ahk`, `ffmpeg`, and `resources` paths remain available.
 
 ### Server connection errors
 - Port `5655` might be blocked by your firewall. Add an exception.

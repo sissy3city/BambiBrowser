@@ -8,14 +8,120 @@ import subprocess
 import shutil
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import deque
 
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer
-from PyQt6.QtGui import QGuiApplication
+import math
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt, QRectF, QPointF
+from PyQt6.QtGui import QGuiApplication, QPainter, QColor, QPen, QFont, QPolygonF, QMovie
+from PyQt6.QtWidgets import QLabel, QLCDNumber, QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QSizePolicy
+try:
+    from PyQt6.QtCore import QUrl
+    from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
+    MULTIMEDIA_AVAILABLE = True
+except ImportError:
+    MULTIMEDIA_AVAILABLE = False
 
 from core.hard_lock import HardLock
 from core.audio_muter import mute_other_applications, unmute_all_applications, is_audio_muting_available
+
+
+class SpiralCanvas(QWidget):
+    """Qt rendering of the extension's interlocking fuzzy spiral."""
+
+    def __init__(self, color_scheme="neon", custom_colors=""):
+        super().__init__()
+        self.setMinimumSize(400, 400)
+        self.frame = 0
+        self.words = [
+            "Airhead barbie", "Bambi", "Bambi butt lock", "Bambi cum and collapse",
+            "Bambi cunt lock", "Bambi does as shes told", "Bambi face lock",
+            "Bambi freeze", "Bambi hips lock", "Bambi limbs lock", "Bambi limp",
+            "Bambi lips lock", "Bambi posture lock", "Bambi reset", "Bambi sleep",
+            "Bambi throat lock", "Bambi tits lock", "Bambi uniform lock",
+            "Bambi waist lock", "Bambi wake and obey", "Bimbo doll",
+            "Blonde moment", "Braindead bobblehead", "Cock zombie now",
+            "Cockblank lovedoll", "Drop for cock", "Giggletime", "Good girl",
+            "Primped and pampered", "Safe and secure", "Snap and forget",
+            "Zap cock drain obey"
+        ]
+        self.word_index = 0
+        self.last_time = 0.0
+
+        self.settings = {
+            'arms': 5, 'turns': 2, 'curve': 2.5, 'width': 0.5,
+            'wobble': 0.05, 'wphase': 0.1, 'wspeed': 0.5,
+            'speed': 0.8, 'dir': 1
+        }
+        self.colors = self._get_colors(color_scheme, custom_colors)
+
+    @staticmethod
+    def _get_colors(color_scheme, custom_colors):
+        palettes = {
+            "neon": ("#ffffff", "#00ff00", "#000000", "#ff00ff"),
+            "pastel": ("#ffd1dc", "#98fb98", "#d8bfd8", "#ffb6c1"),
+            "dark": ("#303030", "#5c6bc0", "#080808", "#8e24aa"),
+        }
+        if color_scheme == "custom" and custom_colors:
+            colors = [value.strip() for value in custom_colors.split(",") if value.strip()]
+            if colors:
+                primary = colors[0]
+                secondary = colors[1] if len(colors) > 1 else primary
+                return primary, secondary, "#000000", secondary
+        return palettes.get(color_scheme, palettes["neon"])
+
+    def _point(self, offset, cur, w_angle, w_size):
+        settings = self.settings
+        rotation = cur * settings['turns'] * math.tau + offset
+        radius = self.radius * math.pow(cur, settings['curve'])
+        if settings['dir']:
+            rotation = math.tau - rotation
+        rotation += settings['wobble'] * math.sin(cur * w_size + w_angle)
+        return QPointF(
+            self.center_x + radius * math.cos(rotation),
+            self.center_y + radius * math.sin(rotation)
+        )
+
+    def _arm(self, offset, w_angle, w_size):
+        steps = max(1, int(90 * self.settings['turns']))
+        return [self._point(offset, i / steps, w_angle, w_size) for i in range(steps + 1)]
+
+    def _draw_layer(self, painter, angle, fill_color, stroke_color, w_angle, w_size):
+        settings = self.settings
+        band_width = settings['width'] / settings['arms']
+        painter.setPen(QPen(QColor(stroke_color), 3))
+        for index in range(settings['arms']):
+            offset = index / settings['arms'] * math.tau + angle
+            outside = self._arm(offset, w_angle, w_size)
+            inside = self._arm(offset + band_width * math.tau, w_angle, w_size)
+            painter.drawPolyline(QPolygonF(outside))
+            painter.drawPolyline(QPolygonF(inside))
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Clear background
+        painter.fillRect(self.rect(), QColor("#0a0a0a"))
+
+        self.center_x = self.width() / 2
+        self.center_y = self.height() / 2
+        self.radius = max(self.width(), self.height()) * 0.95
+        self.frame += 1
+        current_time = self.frame / 60.0
+        settings = self.settings
+        speed = current_time * settings['dir'] * settings['speed']
+        w_angle = current_time * settings['wspeed']
+        w_phase = current_time * settings['wphase']
+        w_size = math.pi * (5 - 4 * math.cos(w_phase))
+        self._draw_layer(painter, speed, self.colors[0], self.colors[1], w_angle, w_size)
+        self._draw_layer(painter, speed + math.pi / 2, self.colors[2], self.colors[3], w_angle + math.pi / 2, w_size)
+
+        painter.setPen(QPen(QColor('#ff6bd6')))
+        painter.setFont(QFont('Arial', 28, QFont.Weight.Bold))
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.words[self.word_index])
 
 logger = logging.getLogger("BambiBrowser.Player")
 
@@ -76,7 +182,7 @@ class MPVProcess(QObject):
             "--no-osc",
             "--really-quiet",
             "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "--referrer=https://hypnotube.com/",
+            f"--referrer={'https://bambicloud.com/' if self.settings.get('bambicloud_audioOnly') or self.settings.get('bambicloud_audio_only') else 'https://hypnotube.com/'}",
             "--hwdec=auto-safe",
             "--vo=gpu-next",
             "--video-sync=display-resample",
@@ -91,6 +197,15 @@ class MPVProcess(QObject):
             volume = self.settings.get('volume', 100)
             percent = min(100, int(volume * 100 / 256))
             cmd.append(f"--volume={percent}")
+
+        if self.settings.get('bambicloud_audioOnly') or self.settings.get('bambicloud_audio_only'):
+            cmd = [argument for argument in cmd if not argument.startswith(("--hwdec=", "--vo=", "--video-sync=", "--profile="))]
+            cmd.extend([
+                "--no-video",
+                "--force-window=no",
+                "--audio-buffer=1.0",
+                "--demuxer-readahead-secs=20",
+            ])
 
         return cmd
 
@@ -218,7 +333,7 @@ class SeamlessPlaybackManager(QObject):
             self._players[screen] = player
 
         if self._input_lock_enabled:
-            QTimer.singleShot(1000, self._apply_hard_lock)
+            self._apply_hard_lock()
 
         if self._mute_other_audio and is_audio_muting_available():
             if mute_other_applications():
@@ -326,15 +441,341 @@ class VideoPlayer(QObject):
         self._max_queue_duration_minutes = 60
         self._max_queue_duration_action = "Reject New Videos"
 
+        # Bambicloud settings
+        self._bambicloud_enabled = settings.value("bambicloud/enabled", True, type=bool)
+        self._bambicloud_animation_type = settings.value("bambicloud/animation_type", "spiral", type=str)
+        self._bambicloud_color_scheme = settings.value("bambicloud/color_scheme", "neon", type=str)
+        self._bambicloud_custom_animation_path = settings.value("bambicloud/custom_animation_path", "", type=str)
+        self._bambicloud_custom_animation_path = settings.value("bambicloud/custom_animation_path", "", type=str)
+        self._bambicloud_custom_colors = settings.value("bambicloud/custom_colors", "#ff6bd6,#00ff00,#ff00ff", type=str)
+        stored_countdown = settings.value("bambicloud/countdown_duration_seconds", None, type=int)
+        if stored_countdown is None:
+            stored_countdown = settings.value("bambicloud/countdown_duration", 2, type=int) * 60
+        self._bambicloud_countdown_duration = max(5, min(300, stored_countdown))
+        self._bambicloud_countdown_enabled = settings.value("bambicloud/countdown_enabled", True, type=bool)
+
+        # Initialize countdown overlay variables
+        self._countdown_overlay: Optional[QWidget] = None
+        self._countdown_label: Optional[QLabel] = None
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.timeout.connect(self._update_countdown)
+        self._countdown_remaining = self._bambicloud_countdown_duration
+        self._countdown_lock_applied = False
+
+        # Initialize spiral overlay variables
+        self._spiral_overlay: Optional[QWidget] = None
+        self._spiral_canvas = None
+        self._custom_media_player = None
+        self._custom_audio_output = None
+        self._custom_movie = None
+        self._spiral_timer: Optional[QTimer] = None
+        self._spiral_frame = 0
+        self._pending_qv: Optional[QueuedVideo] = None
+        self._pending_monitors: List[int] = []
+        self._pending_playback_after_spiral = False
+
         if not get_mpv_path():
             logger.error("mpv.exe not found – playback unavailable")
         else:
             logger.info("VideoPlayer initialized (mpv direct with queue)")
 
+    def _update_countdown_display(self):
+        """Update the countdown display"""
+        if self._countdown_label:
+            minutes, seconds = divmod(max(0, self._countdown_remaining), 60)
+            self._countdown_label.display(f"{minutes:02d}:{seconds:02d}")
+            self._countdown_label.repaint()
+
+    def _update_countdown(self):
+        """Update countdown timer"""
+        self._countdown_remaining -= 1
+        self._update_countdown_display()
+
+        if self._countdown_remaining <= 0:
+            self._countdown_timer.stop()
+            self._start_playback_after_countdown()
+
+    def _on_countdown_clicked(self, event):
+        """Handle click on countdown overlay"""
+        # The global HardLock setting controls whether countdown can be skipped.
+        can_skip = not self._input_lock
+
+        if can_skip:
+            self._countdown_timer.stop()
+            self._start_playback_after_countdown()
+        else:
+            # Show visual feedback that skipping is not allowed
+            if self._countdown_label:
+                self._countdown_label.setStyleSheet("""
+                    font-size: 48px;
+                    font-weight: bold;
+                    color: #ff6b6b;  /* Red color to indicate not allowed */
+                """)
+                # Reset color after brief flash
+                QTimer.singleShot(500, lambda: self._countdown_label.setStyleSheet("""
+                    font-size: 48px;
+                    font-weight: bold;
+                    color: #ff6bd6;
+                """))
+
+    def _hide_countdown_overlay(self):
+        """Hide and cleanup the countdown overlay"""
+        if self._countdown_overlay:
+            self._countdown_timer.stop()
+            self._countdown_overlay.hide()
+            self._countdown_overlay.deleteLater()
+            self._countdown_overlay = None
+            self._countdown_label = None
+        if self._countdown_lock_applied:
+            self.hard_lock.unlock()
+            self._countdown_lock_applied = False
+
+    def _on_countdown_key_press(self, event):
+        """Handle key press on countdown overlay - escape to skip if allowed"""
+        if event.key() == Qt.Key.Key_Escape:
+            # The global HardLock setting controls whether countdown can be skipped.
+            can_skip = not self._input_lock
+
+            if can_skip:
+                self._countdown_timer.stop()
+                self._start_playback_after_countdown()
+            else:
+                # Show visual feedback that skipping is not allowed
+                if self._countdown_label:
+                    self._countdown_label.setStyleSheet("""
+                        font-size: 48px;
+                        font-weight: bold;
+                        color: #ff6b6b;  /* Red color to indicate not allowed */
+                    """)
+                    # Reset color after brief flash
+                    QTimer.singleShot(500, lambda: self._countdown_label.setStyleSheet("""
+                        font-size: 48px;
+                        font-weight: bold;
+                        color: #ff6bd6;
+                    """))
+
+    def _show_countdown_overlay(self, qv: QueuedVideo, monitors: List[int]):
+        """Show countdown overlay before starting bambicloud playback"""
+        if self._countdown_overlay is not None:
+            logger.info("Countdown already active; ignoring duplicate overlay request")
+            return
+
+        # Store the video info for after countdown
+        self._pending_qv = qv
+        self._pending_monitors = monitors
+
+        # Create and show countdown overlay (blank screen with just countdown)
+        self._countdown_overlay = QWidget()
+        self._countdown_overlay.setWindowFlags(
+            Qt.WindowType.Window |
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint
+        )
+        # Set background to black for blank screen effect
+        self._countdown_overlay.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self._countdown_overlay.setStyleSheet("background-color: #000000; color: #ff6bd6;")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Add countdown label (only thing visible on blank screen)
+        self._countdown_label = QLCDNumber()
+        self._countdown_label.setFixedSize(520, 150)
+        self._countdown_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._countdown_label.setDigitCount(5)
+        self._countdown_label.setSegmentStyle(QLCDNumber.SegmentStyle.Flat)
+        self._countdown_label.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self._countdown_label.setStyleSheet("""
+            font-family: 'Courier New';
+            font-size: 88px;
+            font-weight: bold;
+            color: #ff6bd6;
+            background-color: #000000;
+            letter-spacing: 4px;
+        """)
+        layout.addWidget(self._countdown_label, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self._countdown_overlay.setLayout(layout)
+
+        screen = QGuiApplication.primaryScreen().geometry()
+        self._countdown_overlay.setGeometry(screen)
+
+        self._countdown_overlay.setWindowState(Qt.WindowState.WindowFullScreen)
+        self._countdown_overlay.showFullScreen()
+
+        if self._input_lock:
+            self.hard_lock.lock()
+            self._countdown_lock_applied = True
+
+        # Set up countdown timer
+        self._countdown_remaining = self._bambicloud_countdown_duration
+        self._update_countdown_display()
+        self._countdown_timer.start(1000)  # update every second
+
+        # Make overlay clickable to skip if allowed
+        self._countdown_overlay.mousePressEvent = self._on_countdown_clicked
+
+        # Add escape key handling to skip countdown
+        self._countdown_overlay.keyPressEvent = self._on_countdown_key_press
+        self._countdown_overlay.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._countdown_overlay.setFocus()
+
+    def _start_playback_after_countdown(self):
+        """Start playback after countdown finishes or is skipped"""
+        # Hide and cleanup countdown overlay
+        self._hide_countdown_overlay()
+
+        # The spiral is a BambiCloud visual; Hypnotube uses the shared countdown only.
+        if (self._pending_qv.settings.get('bambicloud', False) and
+            self._bambicloud_enabled and self._bambicloud_animation_type != "none"):
+            self._show_spiral_overlay()
+
+        if hasattr(self, '_pending_qv') and hasattr(self, '_pending_monitors'):
+            success = self._start_playback(self._pending_qv, self._pending_monitors)
+            delattr(self, '_pending_qv')
+            delattr(self, '_pending_monitors')
+            if not success:
+                self._hide_spiral_overlay()
+            return success
+        return False
+
     # ---------- Properties ----------
     @property
     def is_playing(self) -> bool:
         return self._is_playing
+
+    def _show_spiral_overlay(self):
+        """Show spiral overlay similar to extension implementation"""
+        # Create and show spiral overlay (blank screen with spiral visualization)
+        self._spiral_overlay = QWidget()
+        self._spiral_overlay.setWindowFlags(
+            Qt.WindowType.Window |
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint
+        )
+        # Set background to #0a0a0a for bambicloud effect
+        self._spiral_overlay.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self._spiral_overlay.setStyleSheet("background-color: #000000; color: #ff6bd6;")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Add spiral canvas using custom widget
+        custom_path = self._bambicloud_custom_animation_path
+        animation_type = self._bambicloud_animation_type
+        custom_loaded = False
+        if animation_type == "custom" and custom_path and os.path.isfile(custom_path):
+            custom_loaded = self._show_custom_animation(custom_path, layout)
+        if not custom_loaded:
+            self._spiral_canvas = SpiralCanvas(
+                self._bambicloud_color_scheme,
+                self._bambicloud_custom_colors
+            )
+            self._spiral_canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            layout.addWidget(self._spiral_canvas, 1)
+
+        self._spiral_overlay.setLayout(layout)
+
+        # Cover the display while BambiCloud audio is playing.
+        screen = QGuiApplication.primaryScreen().geometry()
+        self._spiral_overlay.setGeometry(screen)
+
+        self._spiral_overlay.setWindowState(Qt.WindowState.WindowFullScreen)
+        self._spiral_overlay.showFullScreen()
+
+        # Initialize spiral animation
+        self._spiral_frame = 0
+        self._spiral_words = self._spiral_canvas.words if self._spiral_canvas else []
+        self._spiral_word_index = 0
+
+        # Set up a light animation timer; the canvas does the actual painting.
+        self._spiral_timer = QTimer(self)
+        self._spiral_timer.timeout.connect(self._update_spiral_animation)
+        self._spiral_timer.start(33)  # ~30 FPS
+
+        # Make overlay unskippable during spiral display
+        self._spiral_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+
+    def _update_spiral_animation(self):
+        """Update spiral animation frame"""
+        if not self._spiral_overlay:
+            return
+
+        self._spiral_frame += 1
+
+        # Update word display every ~3 seconds at 30 FPS.
+        if self._spiral_canvas and self._spiral_frame % 90 == 0:
+            self._spiral_word_index = (self._spiral_word_index + 1) % len(self._spiral_words)
+            if self._spiral_canvas:
+                self._spiral_canvas.word_index = self._spiral_word_index
+
+        # Trigger repaint
+        if hasattr(self, '_spiral_overlay') and self._spiral_overlay:
+            if self._spiral_canvas:
+                self._spiral_canvas.update()
+
+    def _hide_spiral_overlay(self):
+        """Hide and cleanup the spiral overlay"""
+        if self._spiral_timer:
+            self._spiral_timer.stop()
+            self._spiral_timer.deleteLater()
+            self._spiral_timer = None
+
+        if self._spiral_overlay:
+            self._spiral_overlay.hide()
+            self._spiral_overlay.deleteLater()
+            self._spiral_overlay = None
+
+        if self._custom_media_player:
+            self._custom_media_player.stop()
+            self._custom_media_player.deleteLater()
+            self._custom_media_player = None
+        if self._custom_audio_output:
+            self._custom_audio_output.deleteLater()
+            self._custom_audio_output = None
+        if self._custom_movie:
+            self._custom_movie.stop()
+            self._custom_movie.deleteLater()
+            self._custom_movie = None
+
+        # Start playback after spiral if pending
+        if self._pending_playback_after_spiral and hasattr(self, '_pending_qv') and hasattr(self, '_pending_monitors'):
+            self._pending_playback_after_spiral = False
+            success = self._start_playback(self._pending_qv, self._pending_monitors)
+            # Cleanup pending vars
+            delattr(self, '_pending_qv')
+            delattr(self, '_pending_monitors')
+            return success
+
+        return False
+
+    def _show_custom_animation(self, path, layout):
+        suffix = Path(path).suffix.lower()
+        if suffix == ".gif":
+            self._custom_movie = QMovie(path)
+            self._custom_movie.setCacheMode(QMovie.CacheMode.CacheAll)
+            animation_label = QLabel()
+            animation_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            animation_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            animation_label.setMovie(self._custom_movie)
+            layout.addWidget(animation_label, 1)
+            self._custom_movie.start()
+            return True
+        if not MULTIMEDIA_AVAILABLE:
+            logger.warning("Qt multimedia unavailable; using spiral for custom animation")
+            return False
+        video_widget = QVideoWidget()
+        video_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(video_widget, 1)
+        self._custom_media_player = QMediaPlayer(self)
+        self._custom_audio_output = QAudioOutput(self)
+        self._custom_audio_output.setVolume(0.0)
+        self._custom_media_player.setAudioOutput(self._custom_audio_output)
+        self._custom_media_player.setVideoOutput(video_widget)
+        self._custom_media_player.setLoops(QMediaPlayer.Loops.Infinite)
+        self._custom_media_player.setSource(QUrl.fromLocalFile(path))
+        self._custom_media_player.play()
+        return True
 
     @property
     def queue_size(self) -> int:
@@ -364,6 +805,14 @@ class VideoPlayer(QObject):
             "max_queue_duration_enabled": self._max_queue_duration_enabled,
             "max_queue_duration_minutes": self._max_queue_duration_minutes,
             "max_queue_duration_action": self._max_queue_duration_action,
+            # Bambicloud settings
+            "bambicloud_enabled": self._bambicloud_enabled,
+            "bambicloud_animation_type": self._bambicloud_animation_type,
+            "bambicloud_color_scheme": self._bambicloud_color_scheme,
+            "bambicloud_custom_animation_path": self._bambicloud_custom_animation_path,
+            "bambicloud_custom_colors": self._bambicloud_custom_colors,
+            "bambicloud_countdown_duration": self._bambicloud_countdown_duration,
+            "bambicloud_countdown_enabled": self._bambicloud_countdown_enabled,
         }
 
     def update_settings(self, **kwargs):
@@ -393,6 +842,21 @@ class VideoPlayer(QObject):
             self._max_queue_duration_minutes = max(30, int(kwargs["max_queue_duration_minutes"]))
         if "max_queue_duration_action" in kwargs:
             self._max_queue_duration_action = str(kwargs["max_queue_duration_action"])
+        # Bambicloud settings
+        if "bambicloud_enabled" in kwargs:
+            self._bambicloud_enabled = bool(kwargs["bambicloud_enabled"])
+        if "bambicloud_animation_type" in kwargs:
+            self._bambicloud_animation_type = str(kwargs["bambicloud_animation_type"])
+        if "bambicloud_color_scheme" in kwargs:
+            self._bambicloud_color_scheme = str(kwargs["bambicloud_color_scheme"])
+        if "bambicloud_custom_animation_path" in kwargs:
+            self._bambicloud_custom_animation_path = str(kwargs["bambicloud_custom_animation_path"])
+        if "bambicloud_custom_colors" in kwargs:
+            self._bambicloud_custom_colors = str(kwargs["bambicloud_custom_colors"])
+        if "bambicloud_countdown_duration" in kwargs:
+            self._bambicloud_countdown_duration = max(5, min(300, int(kwargs["bambicloud_countdown_duration"])))
+        if "bambicloud_countdown_enabled" in kwargs:
+            self._bambicloud_countdown_enabled = bool(kwargs["bambicloud_countdown_enabled"])
 
     def get_available_monitors(self) -> List[int]:
         return list(range(len(QGuiApplication.screens())))
@@ -419,7 +883,10 @@ class VideoPlayer(QObject):
             dur, _ = estimate_video_duration(url)
             duration = dur
 
-        # Check video length limit (for current video only)
+        # Create QueuedVideo
+        qv = QueuedVideo(url=url, settings=kwargs.copy(), duration_seconds=duration)
+
+        # Check the shared single-file limit for all supported media types.
         if self._max_video_length_enabled and duration is not None:
             max_sec = self._max_video_length_minutes * 60
             if duration > max_sec:
@@ -452,8 +919,11 @@ class VideoPlayer(QObject):
                     self.clear_queue()
                 # Warn Only: continue
 
-        # Create QueuedVideo
-        qv = QueuedVideo(url=url, settings=kwargs.copy(), duration_seconds=duration)
+        # Queue requests exactly like regular Hypnotube playback when a session is active.
+        is_bambicloud_content = qv.settings.get('bambicloud', False)
+        if (not self._is_playing and self._bambicloud_countdown_enabled):
+            self._show_countdown_overlay(qv, monitors)
+            return True
 
         if not self._is_playing:
             return self._start_playback(qv, monitors)
@@ -475,7 +945,17 @@ class VideoPlayer(QObject):
         self._current_video = qv
         self._current_monitors = monitors
 
-        self._manager = SeamlessPlaybackManager(self.hard_lock, self.settings)
+        # Determine settings to use - for bambicloud content, use bambicloud safety limits
+        is_bambicloud = qv.settings.get('bambicloud', False)
+        if is_bambicloud:
+            # BambiCloud follows the same safety and queue settings as Bambi Player.
+            settings_dict = self.settings.copy()
+            settings_dict.update(qv.settings)
+        else:
+            # Use regular settings for non-bambicloud content
+            settings_dict = self.settings
+
+        self._manager = SeamlessPlaybackManager(self.hard_lock, settings_dict)
         self._manager.all_finished.connect(self._on_playback_finished)
         self._manager.error_occurred.connect(self._on_error)
 
@@ -492,6 +972,7 @@ class VideoPlayer(QObject):
 
     def _on_playback_finished(self):
         """Called when the current video finishes."""
+        self._hide_spiral_overlay()
         self._is_playing = False
         self._current_video = None
 
@@ -499,8 +980,10 @@ class VideoPlayer(QObject):
             next_qv = self._queue.popleft()
             if next_qv.duration_seconds:
                 self._queue_duration_total -= next_qv.duration_seconds
-            # Start it
-            self._start_playback(next_qv, self._current_monitors)
+            if self._bambicloud_countdown_enabled:
+                self._show_countdown_overlay(next_qv, self._current_monitors)
+            else:
+                self._start_playback(next_qv, self._current_monitors)
         else:
             self._manager = None
             self._current_monitors = []
@@ -520,6 +1003,10 @@ class VideoPlayer(QObject):
 
     def stop(self):
         """Stop all playback and clear queue."""
+        # Hide countdown overlay if visible
+        self._hide_countdown_overlay()
+        self._hide_spiral_overlay()
+
         if self._manager:
             self._manager.stop_all()
             self._manager = None

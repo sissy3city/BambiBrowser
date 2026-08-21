@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QLabel, QCheckBox, QSlider, QPushButton,
     QScrollArea, QComboBox, QTabWidget, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QLineEdit, QFileDialog, QTextEdit
+    QLineEdit, QFileDialog, QTextEdit, QColorDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QBrush
@@ -162,6 +162,7 @@ class UnifiedSettingsPanel(QWidget):
         super().__init__(parent)
         self._manager = settings_manager
         self.gag_manager = gag_manager
+        self._user_editing = False
         self._setup_ui()
         self._load_from_manager()
         self._connect_signals()
@@ -273,14 +274,14 @@ class UnifiedSettingsPanel(QWidget):
 
         # Max video length
         video_toggle_layout = QHBoxLayout()
-        video_toggle_layout.addWidget(QLabel("📹 Max Video Length"))
+        video_toggle_layout.addWidget(QLabel("📹 Max Single File Length"))
         video_toggle_layout.addStretch()
         self.video_limit_toggle = IOSToggleSwitch()
         self.video_limit_toggle.toggled.connect(self._on_video_limit_toggled)
         video_toggle_layout.addWidget(self.video_limit_toggle)
         safety_layout.addLayout(video_toggle_layout)
 
-        self.video_slider = SliderWithAction("Maximum video length (minutes)", 5, 120, 10, tolerance=2,
+        self.video_slider = SliderWithAction("Max Single File Length (minutes)", 5, 120, 10, tolerance=2,
             actions=["Block & Show Warning", "Stop Playback", "Auto-Skip Video", "Warn & Allow"])
         self.video_slider.value_changed.connect(self._on_video_limit_value_changed)
         self.video_slider.action_changed.connect(self._on_setting_changed)
@@ -307,9 +308,15 @@ class UnifiedSettingsPanel(QWidget):
         note.setStyleSheet("font-size: 11px; color: #666; padding-left: 4px;")
         safety_layout.addWidget(note)
 
+        scope_note = QLabel("These limits apply to Hypnotube videos and BambiCloud audio sessions.")
+        scope_note.setStyleSheet("font-size: 11px; color: #888; padding-left: 4px;")
+        scope_note.setWordWrap(True)
+        safety_layout.addWidget(scope_note)
+
         safety_group.setLayout(safety_layout)
         layout.addWidget(safety_group)
 
+        layout.addWidget(self._create_bambicloud_tab())
         layout.addStretch()
         widget.setLayout(layout)
         return widget
@@ -439,6 +446,161 @@ class UnifiedSettingsPanel(QWidget):
         widget.setLayout(layout)
         return widget
 
+    def _create_bambicloud_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        # Master enable
+        self.bambicloud_enabled_row = ToggleRow("☁️ Enable Bambicloud Support",
+                                               "Special handling for bambicloud.com audio content")
+        self.bambicloud_enabled_row.toggled.connect(self._on_bambicloud_toggled)
+        layout.addWidget(self.bambicloud_enabled_row)
+
+        # Countdown enable
+        self.bambicloud_countdown_row = ToggleRow("⏱️ Enable Countdown Overlay",
+                                                 "Show desktop countdown before each media session")
+        self.bambicloud_countdown_row.toggled.connect(self._on_bambicloud_countdown_toggled)
+        layout.addWidget(self.bambicloud_countdown_row)
+
+        # Animation type
+        animation_layout = QHBoxLayout()
+        animation_layout.addWidget(QLabel("Animation Type:"))
+        self.bambicloud_animation_combo = QComboBox()
+        self.bambicloud_animation_combo.addItem("Spiral", "spiral")
+        self.bambicloud_animation_combo.addItem("None", "none")
+        self.bambicloud_animation_combo.addItem("Custom file", "custom")
+        self.bambicloud_animation_combo.currentTextChanged.connect(self._on_bambicloud_setting_changed)
+        animation_layout.addWidget(self.bambicloud_animation_combo)
+        animation_layout.addStretch()
+        self.bambicloud_animation_widget = QWidget()
+        self.bambicloud_animation_widget.setLayout(animation_layout)
+        layout.addWidget(self.bambicloud_animation_widget)
+
+        self.bambicloud_custom_file_button = QPushButton("Select GIF or video file")
+        self.bambicloud_custom_file_button.clicked.connect(self._select_bambicloud_animation)
+        self.bambicloud_custom_file_label = QLabel("No custom animation selected")
+        self.bambicloud_custom_file_label.setStyleSheet("font-size: 11px; color: #888;")
+        custom_file_layout = QHBoxLayout()
+        custom_file_layout.addWidget(self.bambicloud_custom_file_button)
+        custom_file_layout.addWidget(self.bambicloud_custom_file_label, 1)
+        self.bambicloud_custom_file_widget = QWidget()
+        self.bambicloud_custom_file_widget.setLayout(custom_file_layout)
+        layout.addWidget(self.bambicloud_custom_file_widget)
+
+        # Color scheme
+        color_layout = QHBoxLayout()
+        color_layout.addWidget(QLabel("Color Scheme:"))
+        self.bambicloud_color_combo = QComboBox()
+        self.bambicloud_color_combo.addItem("Neon - bright green, magenta, cyan", "neon")
+        self.bambicloud_color_combo.addItem("Pastel - soft pink, lavender, mint", "pastel")
+        self.bambicloud_color_combo.addItem("Dark - deep blue, violet, red", "dark")
+        self.bambicloud_color_combo.addItem("Custom - choose your own hex colors", "custom")
+        self.bambicloud_color_combo.currentTextChanged.connect(self._on_bambicloud_setting_changed)
+        color_layout.addWidget(self.bambicloud_color_combo)
+        color_layout.addStretch()
+        self.bambicloud_color_widget = QWidget()
+        self.bambicloud_color_widget.setLayout(color_layout)
+        layout.addWidget(self.bambicloud_color_widget)
+
+        self.bambicloud_color_help = QLabel("Colors control the spiral bands and outline during BambiCloud playback.")
+        self.bambicloud_color_help.setWordWrap(True)
+        self.bambicloud_color_help.setStyleSheet("font-size: 11px; color: #888;")
+        layout.addWidget(self.bambicloud_color_help)
+        self.bambicloud_custom_color_buttons = []
+        self.bambicloud_custom_color_widget = QWidget()
+        custom_color_layout = QHBoxLayout(self.bambicloud_custom_color_widget)
+        for index, label in enumerate(("Primary", "Outline", "Accent")):
+            button = QPushButton(f"Choose {label} color")
+            button.clicked.connect(lambda _, color_index=index: self._choose_bambicloud_color(color_index))
+            self.bambicloud_custom_color_buttons.append(button)
+            custom_color_layout.addWidget(button)
+        layout.addWidget(self.bambicloud_custom_color_widget)
+
+        # Countdown duration
+        countdown_duration_layout = QHBoxLayout()
+        countdown_duration_layout.addWidget(QLabel("Countdown Duration:"))
+        self.bambicloud_countdown_duration_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bambicloud_countdown_duration_slider.setRange(5, 300)
+        self.bambicloud_countdown_duration_slider.setValue(120)
+        self.bambicloud_countdown_duration_slider.valueChanged.connect(self._on_bambicloud_countdown_duration_changed)
+        countdown_duration_layout.addWidget(self.bambicloud_countdown_duration_slider)
+        self.bambicloud_countdown_duration_label = QLabel("2 min")
+        self.bambicloud_countdown_duration_slider.valueChanged.connect(
+            lambda v: self.bambicloud_countdown_duration_label.setText(
+                f"{v} sec" if v < 60 else f"{v // 60} min {v % 60} sec" if v % 60 else f"{v // 60} min"))
+        countdown_duration_layout.addWidget(self.bambicloud_countdown_duration_label)
+        self.bambicloud_countdown_duration_widget = QWidget()
+        self.bambicloud_countdown_duration_widget.setLayout(countdown_duration_layout)
+        layout.addWidget(self.bambicloud_countdown_duration_widget)
+
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
+
+    # ---------- Bambicloud signal handlers ----------
+    def _on_bambicloud_toggled(self, checked: bool):
+        if self._manager.is_locked:
+            return
+        self._manager.update_bambicloud(enabled=checked)
+        self._update_bambicloud_visibility()
+        self.settings_changed.emit()
+
+    def _on_bambicloud_countdown_toggled(self, checked: bool):
+        if self._manager.is_locked:
+            return
+        self._manager.update_bambicloud(countdown_enabled=checked)
+        self._update_bambicloud_visibility()
+        self.settings_changed.emit()
+
+    def _update_bambicloud_visibility(self):
+        enabled = self.bambicloud_enabled_row.isChecked()
+        countdown_enabled = self.bambicloud_countdown_row.isChecked()
+        self.bambicloud_animation_widget.setVisible(enabled)
+        self.bambicloud_custom_file_widget.setVisible(enabled and self.bambicloud_animation_combo.currentData() == "custom")
+        self.bambicloud_color_widget.setVisible(enabled)
+        self.bambicloud_color_help.setVisible(enabled)
+        self.bambicloud_custom_color_widget.setVisible(enabled and self.bambicloud_color_combo.currentData() == "custom")
+        self.bambicloud_countdown_duration_widget.setVisible(countdown_enabled)
+
+    def _on_bambicloud_setting_changed(self):
+        if self._manager.is_locked:
+            return
+        self._manager.update_bambicloud(
+            animation_type=self.bambicloud_animation_combo.currentData(),
+            color_scheme=self.bambicloud_color_combo.currentData()
+        )
+        self._update_bambicloud_visibility()
+        self.settings_changed.emit()
+
+    def _select_bambicloud_animation(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select BambiCloud animation", "",
+            "Media files (*.gif *.mp4 *.webm *.avi *.mkv *.mov *.wmv *.m4v);;All files (*.*)"
+        )
+        if path:
+            self._manager.update_bambicloud(custom_animation_path=path)
+            self.bambicloud_custom_file_label.setText(path)
+            self._update_bambicloud_visibility()
+            self.settings_changed.emit()
+
+    def _choose_bambicloud_color(self, color_index):
+        color = QColorDialog.getColor(parent=self, title="Choose BambiCloud color")
+        if color.isValid():
+            current = self._manager.bambicloud.custom_colors.split(",")
+            while len(current) < 3:
+                current.append("#ff00ff")
+            current[color_index] = color.name()
+            self._manager.update_bambicloud(custom_colors=",".join(current))
+            self.settings_changed.emit()
+
+    def _on_bambicloud_countdown_duration_changed(self, value: int):
+        if self._manager.is_locked:
+            return
+        self._manager.update_bambicloud(countdown_duration=value)
+        self.settings_changed.emit()
+
     # ---------- Gag signal handlers ----------
     def _on_gag_master_toggled(self, checked: bool):
         if self._manager.is_locked:
@@ -482,6 +644,7 @@ class UnifiedSettingsPanel(QWidget):
         self._manager.playback_settings_changed.connect(self._on_playback_changed)
         self._manager.safety_settings_changed.connect(self._on_safety_changed)
         self._manager.text_replacer_settings_changed.connect(self._on_text_replacer_changed)
+        self._manager.all_settings_changed.connect(self._on_all_settings_changed)
 
     def _load_from_manager(self):
         p = self._manager.playback
@@ -521,6 +684,18 @@ class UnifiedSettingsPanel(QWidget):
         # Update status label if gag_manager is running
         if self.gag_manager and self.gag_manager.is_running:
             self._on_gag_status_changed(self.gag_manager.current_state)
+
+        # Bambicloud settings
+        bc = self._manager.bambicloud
+        self.bambicloud_enabled_row.setChecked(bc.enabled)
+        self.bambicloud_countdown_row.setChecked(bc.countdown_enabled)
+        self.bambicloud_animation_combo.setCurrentText("Custom file" if bc.animation_type == "custom" else bc.animation_type.title())
+        color_index = self.bambicloud_color_combo.findData(bc.color_scheme)
+        if color_index >= 0:
+            self.bambicloud_color_combo.setCurrentIndex(color_index)
+        self.bambicloud_custom_file_label.setText(bc.custom_animation_path or "No custom animation selected")
+        self.bambicloud_countdown_duration_slider.setValue(bc.countdown_duration)
+        self._update_bambicloud_visibility()
 
         # Apply lock state immediately after loading
         self._on_lock_state_changed(self._manager.is_locked)
@@ -744,22 +919,26 @@ class UnifiedSettingsPanel(QWidget):
             queue_limit = self.queue_slider.value()
             if queue_limit < video_limit:
                 self.queue_slider.setValue(video_limit)
-        self._manager.update_playback(
-            input_lock=self.hardlock_row.isChecked(),
-            click_through=self.clickthrough_row.isChecked(),
-            opacity=self.opacity_slider.value(),
-            multi_monitor=self.multimonitor_row.isChecked(),
-            volume=self.volume_slider.value(),
-            mute_other_audio=self.mute_audio_row.isChecked()
-        )
-        self._manager.update_safety(
-            max_video_length_enabled=self.video_limit_toggle.isChecked(),
-            max_video_length_minutes=self.video_slider.value(),
-            max_video_length_action=self.video_slider.action(),
-            max_queue_duration_enabled=self.queue_limit_toggle.isChecked(),
-            max_queue_duration_minutes=self.queue_slider.value(),
-            max_queue_duration_action=self.queue_slider.action()
-        )
+        self._user_editing = True
+        try:
+            self._manager.update_safety(
+                max_video_length_enabled=self.video_limit_toggle.isChecked(),
+                max_video_length_minutes=self.video_slider.value(),
+                max_video_length_action=self.video_slider.action(),
+                max_queue_duration_enabled=self.queue_limit_toggle.isChecked(),
+                max_queue_duration_minutes=self.queue_slider.value(),
+                max_queue_duration_action=self.queue_slider.action()
+            )
+            self._manager.update_playback(
+                input_lock=self.hardlock_row.isChecked(),
+                click_through=self.clickthrough_row.isChecked(),
+                opacity=self.opacity_slider.value(),
+                multi_monitor=self.multimonitor_row.isChecked(),
+                volume=self.volume_slider.value(),
+                mute_other_audio=self.mute_audio_row.isChecked()
+            )
+        finally:
+            self._user_editing = False
         self.settings_changed.emit()
 
     def _on_text_replacer_toggled(self, checked: bool):
@@ -838,6 +1017,14 @@ class UnifiedSettingsPanel(QWidget):
         self.video_slider.setEnabled(enabled)
         self.queue_limit_toggle.setEnabled(enabled)
         self.queue_slider.setEnabled(enabled)
+        self.bambicloud_enabled_row.setEnabled(enabled)
+        self.bambicloud_countdown_row.setEnabled(enabled)
+        self.bambicloud_animation_combo.setEnabled(enabled)
+        self.bambicloud_custom_file_button.setEnabled(enabled)
+        self.bambicloud_color_combo.setEnabled(enabled)
+        for button in self.bambicloud_custom_color_buttons:
+            button.setEnabled(enabled)
+        self.bambicloud_countdown_duration_slider.setEnabled(enabled)
         self.tr_enabled_row.setEnabled(enabled)
         self.rules_table.setEnabled(enabled)
         self.trigger_input.setEnabled(enabled)
@@ -846,6 +1033,11 @@ class UnifiedSettingsPanel(QWidget):
         self.gag_enabled_row.setEnabled(enabled)
         self.gag_remote_input.setEnabled(enabled)
         self.gag_local_row.setEnabled(enabled and not bool(self.gag_remote_input.text().strip()))
+        self.bambicloud_enabled_row.setEnabled(enabled)
+        self.bambicloud_countdown_row.setEnabled(enabled)
+        self.bambicloud_animation_combo.setEnabled(enabled)
+        self.bambicloud_color_combo.setEnabled(enabled)
+        self.bambicloud_countdown_duration_slider.setEnabled(enabled)
 
     def _update_lock_ui(self):
         if self._manager.is_locked:
@@ -862,6 +1054,10 @@ class UnifiedSettingsPanel(QWidget):
     def _on_playback_changed(self, settings): pass
     def _on_safety_changed(self, settings): pass
     def _on_text_replacer_changed(self, settings): pass
+    def _on_all_settings_changed(self):
+        """Refresh UI when settings are changed from external source"""
+        if not self._user_editing:
+            self._load_from_manager()
 
     def get_player_settings(self) -> dict:
         return self._manager.get_player_settings_dict()

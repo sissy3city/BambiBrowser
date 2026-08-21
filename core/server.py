@@ -6,8 +6,11 @@ import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Callable, TYPE_CHECKING
 from urllib.parse import urlparse
+import re
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
-from PyQt6.QtCore import QObject, pyqtSignal, Qt
+from PyQt6.QtCore import QObject, pyqtSignal
 
 if TYPE_CHECKING:
     from core.player import VideoPlayer
@@ -17,11 +20,16 @@ logger = logging.getLogger("BambiBrowser.Server")
 
 class PlayRequest:
     """Container for play request data."""
-    def __init__(self, url: str, multi_monitor: bool = False, 
+    def __init__(self, url: str, multi_monitor: bool = False,
                  input_lock: bool = True, selected_monitors: list = None,
                  volume: int = 256, mute_other_audio: bool = False,
                  click_through: bool = False,
-                 opacity: int = 100, escape_grace: int = 10):
+                 opacity: int = 100, escape_grace: int = 10,
+                 bambicloud: bool = False,
+                 bambicloud_type: str = None,
+                 bambicloud_uuid: str = None,
+                 bambicloud_visualSession: bool = False,
+                 bambicloud_audioOnly: bool = False):
         self.url = url
         self.multi_monitor = multi_monitor
         self.input_lock = input_lock
@@ -31,6 +39,11 @@ class PlayRequest:
         self.click_through = click_through
         self.opacity = opacity
         self.escape_grace = escape_grace
+        self.bambicloud = bambicloud
+        self.bambicloud_type = bambicloud_type
+        self.bambicloud_uuid = bambicloud_uuid
+        self.bambicloud_visualSession = bambicloud_visualSession
+        self.bambicloud_audioOnly = bambicloud_audioOnly
 
 
 class BambiRequestHandler(BaseHTTPRequestHandler):
@@ -144,13 +157,28 @@ class BambiRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "no_url"}, 400)
             return
 
+        # Keep older extensions compatible with the canonical BambiCloud audio URL.
+        if data.get("bambicloud") and data.get("bambicloud_uuid"):
+            uuid = str(data["bambicloud_uuid"])
+            if re.fullmatch(r"[0-9a-fA-F-]{36}", uuid):
+                media_urls = data.get("media_urls") or [
+                    f"https://cdn.bambicloud.com/{uuid}.mp3",
+                    f"https://cdn.bambicloud.com/{uuid}.wav",
+                ]
+                video_url = self._select_media_url(media_urls)
+                if not video_url:
+                    self._send_json({"error": "bambicloud_media_not_found"}, 404)
+                    return
+
         saved_settings = self.player_instance.settings
 
-        # ---- Video length limit ----
-        if saved_settings.get("max_video_length_enabled", False):
+        # ---- Single file length limit ----
+        video_length_enabled = saved_settings.get("max_video_length_enabled", False)
+        max_video_minutes = saved_settings.get("max_video_length_minutes", 10)
+        action = saved_settings.get("max_video_length_action", "Block & Show Warning")
+
+        if video_length_enabled:
             from core.duration_helper import estimate_video_duration
-            max_video_minutes = saved_settings.get("max_video_length_minutes", 10)
-            action = saved_settings.get("max_video_length_action", "Block & Show Warning")
             duration_seconds, source = estimate_video_duration(video_url)
 
             if duration_seconds is not None:
@@ -180,7 +208,9 @@ class BambiRequestHandler(BaseHTTPRequestHandler):
                     # Warn & Allow – continue
 
         # ---- Queue duration limit ----
-        if saved_settings.get("max_queue_duration_enabled", False):
+        queue_duration_enabled = saved_settings.get("max_queue_duration_enabled", False)
+
+        if queue_duration_enabled:
             max_queue_minutes = saved_settings.get("max_queue_duration_minutes", 60)
             action = saved_settings.get("max_queue_duration_action", "Reject New Videos")
 
@@ -225,11 +255,32 @@ class BambiRequestHandler(BaseHTTPRequestHandler):
             mute_other_audio=bool(data.get("mute_other_audio", saved_settings.get("mute_other_audio", False))),
             click_through=bool(data.get("click_through", saved_settings.get("click_through", False))),
             opacity=int(data.get("opacity", saved_settings.get("opacity", 100))),
+            bambicloud=bool(data.get("bambicloud", False)),
+            bambicloud_type=data.get("bambicloud_type"),
+            bambicloud_uuid=data.get("bambicloud_uuid"),
+            bambicloud_visualSession=bool(data.get("bambicloud_visualSession", False)),
+            bambicloud_audioOnly=bool(data.get("bambicloud_audioOnly", False)),
         )
 
         logger.info(f"Play request accepted: {video_url[:60]}...")
         self.server_instance.play_requested.emit(request)
         self._send_json({"status": "playing", "queued": True})
+
+    @staticmethod
+    def _select_media_url(media_urls):
+        for candidate in media_urls:
+            if not isinstance(candidate, str) or not candidate.startswith("https://"):
+                continue
+            try:
+                request = Request(candidate, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+                with urlopen(request, timeout=10) as response:
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    if response.status == 200 and (content_type.startswith("audio/") or ".mp3" in candidate or ".wav" in candidate):
+                        logger.info(f"Selected BambiCloud media: {candidate}")
+                        return candidate
+            except (HTTPError, URLError, TimeoutError, OSError) as error:
+                logger.info(f"BambiCloud media unavailable: {candidate} ({error})")
+        return None
     
     def _handle_stop(self, data: dict):
         if not self.player_instance:
@@ -297,6 +348,11 @@ class BambiServer(QObject):
             "mute_other_audio": request.mute_other_audio,
             "click_through": request.click_through,
             "opacity": request.opacity,
+            "bambicloud": request.bambicloud,
+            "bambicloud_type": request.bambicloud_type,
+            "bambicloud_uuid": request.bambicloud_uuid,
+            "bambicloud_visualSession": request.bambicloud_visualSession,
+            "bambicloud_audioOnly": request.bambicloud_audioOnly
         }
         logger.info(f"Playing with settings: {settings}")
         self.player.play(request.url, **settings)
