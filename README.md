@@ -32,38 +32,57 @@ BambiBrowser/
 ├── bambi_browser.pyw         # Main entry point
 ├── requirements.txt          # Python dependencies
 ├── VERSION                   # Version info
-├── core/                     # Backend modules
-│   ├── ahk_manager.py        # AutoHotkey download & script management
-│   ├── audio_muter.py        # System audio muting via pycaw
+├── core/                     # Backend modules (cross-platform + platform dispatchers)
+│   ├── audio_muter.py        # Dispatcher -> windows/audio_muter_windows.py or linux/audio_muter_linux.py
 │   ├── auto_updater.py       # GitHub update checker & installer
+│   ├── autostart.py          # Start-at-login registration (Registry on Windows, .desktop on Linux)
+│   ├── diagnostics.py        # "Run Diagnostics" checks (mpv/evdev/xdotool, permissions, HardLock, per-monitor windows)
 │   ├── duration_helper.py    # Video duration detection (ffprobe, VLC, headers)
-│   ├── ffmpeg_downloader.py  # Downloads ffprobe for accurate duration
-│   ├── gag_manager.py        # Bambi Gag – AutoHotkey‑based text gagging
-│   ├── hard_lock.py          # System‑wide input blocker
-│   ├── player.py             # mpv‑based video player with multi‑screen
+│   ├── ffmpeg_downloader.py  # Downloads ffprobe (Windows only; Linux uses the system package)
+│   ├── gag_manager.py        # Bambi Gag - AutoHotkey on Windows, evdev/uinput on Linux
+│   ├── hard_lock.py          # Dispatcher -> windows/hard_lock_windows.py or linux/hard_lock_linux.py
+│   ├── player.py             # mpv‑based video player with multi‑screen, queue, BambiCloud overlays
 │   ├── server.py             # HTTP server for extension communication
 │   ├── settings_manager.py   # Central settings with OTP lock
-│   ├── text_replacer.py      # OS‑level text replacement (AutoHotkey)
-│   └── utils.py              # Base path, logging setup
+│   ├── text_replacer.py      # OS‑level text replacement - AutoHotkey on Windows, native engine on Linux
+│   ├── utils.py              # Base path, logging setup
+│   ├── window_manager.py     # Dispatcher -> windows/window_manager_windows.py or linux/window_manager_linux.py
+│   ├── windows/               # Windows-only implementations
+│   │   ├── ahk_downloader.py  # AutoHotkey download/extraction
+│   │   ├── ahk_generator.py   # AutoHotkey script generation
+│   │   ├── ahk_manager.py     # AutoHotkey process management
+│   │   ├── audio_muter_windows.py    # pycaw-based audio muting
+│   │   ├── hard_lock_windows.py      # Driver-level keyboard disable + BlockInput + low-level hook
+│   │   └── window_manager_windows.py # win32gui opacity/click-through/topmost
+│   └── linux/                 # Linux-only implementations
+│       ├── _uinput_compat.py       # uinput compatibility shim
+│       ├── audio_muter_linux.py    # pactl/wpctl (PipeWire) audio muting
+│       ├── hard_lock_linux.py      # Exclusive evdev device grab
+│       ├── linux_gag_engine.py     # evdev/uinput-based Bambi Gag
+│       ├── linux_keymap.py         # xkbcommon keyboard layout mapping
+│       ├── linux_text_replacer.py  # evdev/uinput-based text replacement
+│       └── window_manager_linux.py # xdotool/wmctrl/python-xlib opacity/click-through/topmost (XWayland)
 ├── ui/                       # PyQt6 UI components
 │   ├── main_window.py        # Main application window
-│   ├── settings_panel.py     # Unified settings (Playback, BambiCloud, Safety, TextReplacer, Gag)
+│   ├── settings_panel.py     # Unified settings (General, Playback, BambiCloud, Safety, TextReplacer, Gag)
 │   ├── otp_dialog.py         # OTP lock/unlock dialog
 │   ├── tray_icon.py          # System tray integration
 │   ├── update_dialog.py      # Update notification & progress
 │   └── styles.py             # Dark theme QSS
 ├── extension/                # Browser extension (Chrome & Firefox)
 │   ├── manifest.json         # Chrome manifest (v3)
-│   ├── manifest.firefox.json # Firefox manifest (rename to use)
+│   ├── manifest.firefox.json # Firefox manifest (v3, rename to use)
 │   ├── background.js         # Service worker / background script
 │   ├── content.js            # Main content script (video detection & fallback)
 │   ├── popup.html            # Extension popup UI
 │   ├── popup.js              # Popup logic (enable/disable, server status)
 │   └── detectors/            # Site‑specific video detectors
-│       └── hypnotube.js      # Hypnotube.com detector
-├── ahk/                      # AutoHotkey binaries (auto‑downloaded if missing)
-├── ffmpeg/                   # ffprobe binary (auto‑downloaded if missing)
-├── mpv/                      # mpv player binaries (bundled or system)
+│       ├── hypnotube.js      # Hypnotube.com detector
+│       ├── bambicloud.js     # BambiCloud.com detector
+│       └── spankbang.js      # Spankbang.com detector
+├── ahk/                      # AutoHotkey binaries (Windows, auto‑downloaded if missing)
+├── ffmpeg/                   # ffprobe binary (Windows, auto‑downloaded if missing)
+├── mpv/                      # mpv player binaries (bundled on Windows, system package on Linux)
 └── resources/                # Icons and static assets
 ```
 
@@ -71,13 +90,41 @@ BambiBrowser/
 
 ## 💻 Requirements
 
-- **Windows** (7, 10, 11 – because AutoHotkey and HardLock are Windows‑native)
-- **Python 3.7+** (newer is better, babe!)
-- **mpv** – bundled with the app (or you can provide your own)
-- **Qt Multimedia** – included through PyQt6 for custom fullscreen animations
-- **AutoHotkey** – auto‑downloaded on first use (or you can install it manually)
-- **FFmpeg** – auto‑downloads `ffprobe` for accurate video duration detection
-- A modern web browser (Chrome, Firefox, Edge, etc.)
+BambiBrowser runs on **Windows** and **Linux** (developed/tested on Fedora KDE Plasma).
+
+- **Python 3.9+**
+- **mpv** – bundled on Windows; on Linux, install via your package manager
+- **Qt Multimedia** – included through PyQt6, used for the BambiCloud custom GIF/video animation
+- **A modern web browser** (Chrome, Firefox, Edge, etc.)
+
+**Windows-specific:** AutoHotkey (auto-downloaded on first use) and HardLock use Windows-native APIs (BlockInput, low-level keyboard hooks, driver-level device disable).
+
+**Linux-specific:** HardLock uses an exclusive `python-evdev` device grab, audio muting uses `pactl`/`wpctl` (PipeWire), window opacity/click-through/topmost use `xdotool`/`wmctrl`/`python-xlib` against an XWayland window, and the text replacer's keystroke matching goes through `libxkbcommon` (via the `xkbcommon` pip package, already in `requirements.txt`) so it correctly reads whatever keyboard layout you actually have configured (US, German, French, ...) instead of assuming US QWERTY. Install system packages first:
+
+```bash
+sudo dnf install mpv ffmpeg ffmpeg-libs python3-evdev python3-xlib wmctrl xdotool ydotool pipewire-utils xorg-x11-server-utils
+```
+
+> `xorg-x11-server-utils` provides `setxkbmap`, used to detect your active keyboard layout via XWayland. `libxkbcommon` itself is almost always already present (every X11/Wayland desktop depends on it); if the "Keyboard layout (xkbcommon)" diagnostics check fails, install it explicitly with `sudo dnf install libxkbcommon`.
+
+> `ffmpeg`/`ffmpeg-libs` require [RPM Fusion](https://rpmfusion.org/) enabled — stock Fedora repos only ship `ffmpeg-free`, which lacks some codecs.
+>
+> **If that fails with a conflict** between `ffmpeg-free`/`libswscale-free` (stock Fedora) and `ffmpeg`/`libswscale` (RPM Fusion) — a common one-time gotcha on Fedora, not specific to this app — swap the free build for the full one first, then retry:
+> ```bash
+> sudo dnf swap ffmpeg-free ffmpeg --allowerasing
+> sudo dnf install mpv python3-evdev python3-xlib wmctrl xdotool ydotool pipewire-utils xorg-x11-server-utils
+> ```
+
+For HardLock and text replacement/gag to grab input devices, your user needs access to `/dev/input/event*`:
+
+```bash
+sudo usermod -aG input $USER
+# then log out and back in
+```
+
+> **Wayland note:** BambiBrowser's window opacity, click-through, and always-on-top tricks only work against an X11/XWayland window — Wayland's security model doesn't allow one app to inspect or restyle another app's window. On a Fedora KDE Plasma **Wayland** session, mpv still creates an XWayland window by default (no code changes needed), so these features work as long as XWayland is available. If you run a pure Wayland compositor with no XWayland, those specific features degrade gracefully (logged, not fatal) while playback itself keeps working.
+
+> **BambiCloud custom animation on Linux:** a custom GIF plays fine everywhere (Qt's own `QMovie`, no extra backend needed). A custom **video** file goes through Qt Multimedia, which on Linux needs a GStreamer backend (e.g. `sudo dnf install gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav`) — without it, `QMediaPlayer` silently fails to play the file at runtime rather than at import time. This hasn't been exercised on Linux yet; if it doesn't work, use a GIF or the built-in spiral instead.
 
 ---
 
@@ -89,12 +136,14 @@ BambiBrowser/
    cd BambiBrowser
    ```
 
-2. **Install Python dependencies**  
+2. **(Linux only) Install system packages and add yourself to the `input` group** — see Requirements above.
+
+3. **Install Python dependencies**  
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Install the browser extension**  
+4. **Install the browser extension**  
    - **Chrome/Chromium**:  
      - Open `chrome://extensions/`  
      - Enable **Developer mode**  
@@ -104,11 +153,11 @@ BambiBrowser/
      - Click **Load Temporary Add‑on**  
      - Select any file inside the `extension/` folder (or rename `manifest.firefox.json` to `manifest.json` and load the folder).  
 
-4. **Run the application**  
+5. **Run the application**  
    ```bash
    python bambi_browser.pyw
    ```  
-   The app will request Administrator rights (if needed) and start with a system tray icon.
+   On Windows, the app will request Administrator rights (if needed). On Linux, no elevation is used or needed — HardLock/input access instead depends on `input` group membership (see Requirements). The app starts with a system tray icon either way.
 
 ### Standalone Windows Build
 
@@ -118,7 +167,7 @@ The repository includes a PyInstaller spec that bundles the desktop application,
 .\.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm bambi_browser.spec
 ```
 
-The standalone application is created under `dist\bambi_browser\bambi_browser.exe`. Keep the bundled `mpv`, `ahk`, `ffmpeg`, and `resources` folders beside the executable. User-selected BambiCloud custom animation files remain external and are selected at runtime.
+The standalone application is created under `dist\bambi_browser\bambi_browser.exe`. Keep the bundled `mpv`, `ahk`, `ffmpeg`, and `resources` folders beside the executable. User-selected BambiCloud custom animation files remain external and are selected at runtime. This packaged build is Windows-only; run Linux from source per the steps above.
 
 ---
 
@@ -126,10 +175,11 @@ The standalone application is created under `dist\bambi_browser\bambi_browser.ex
 
 ### Desktop Application
 
-- The main window opens with **three tabs**:
-  1. **🎬 Bambi Player** – Playback settings (HardLock, opacity, click‑through, multi‑monitor, volume, audio muting) and **Safety Limits** (max video length, queue duration).
-  2. **📖 Bambi Dictionary** – Enable OS‑level text replacement, manage your replacement rules, import/export presets.
-  3. **🔇 Bambi Gag** – Enable the gag, set a remote URL for toggling, or use local toggle.
+- The main window opens with **four tabs**:
+  1. **⚙️ General** – Start-at-login toggle and a "Run Diagnostics" check (mpv/evdev/xdotool, permissions, HardLock, per-monitor windows).
+  2. **🎬 Bambi Player** – Playback settings (HardLock, opacity, click‑through, multi‑monitor, volume, audio muting), **Safety Limits** (max single file length, queue duration), and **BambiCloud** (countdown, spiral/custom animation, color scheme).
+  3. **📖 Bambi Dictionary** – Enable OS‑level text replacement, manage your replacement rules, import/export presets.
+  4. **🔇 Bambi Gag** – Enable the gag, set a remote URL for toggling, or use local toggle.
 
 - **Lock your settings** with a 6‑digit BambiCode by clicking the **💾 Save & Lock Settings** button at the bottom. Once locked, no changes can be made without entering the code.
 
@@ -150,7 +200,7 @@ The standalone application is created under `dist\bambi_browser\bambi_browser.ex
 
 ## ⚙️ Configuration
 
-All settings are stored in `QSettings` (Windows Registry) and can be locked with an OTP. Key settings include:
+All settings are stored via `QSettings` and can be locked with an OTP — on Windows this is the Registry (`HKEY_CURRENT_USER`), on Linux it's an INI file at `~/.config/BambiBrowser/Settings.conf`. Key settings include:
 
 | Category          | Setting                          | Description                                                                 |
 |-------------------|----------------------------------|-----------------------------------------------------------------------------|
@@ -183,9 +233,11 @@ All settings are stored in `QSettings` (Windows Registry) and can be locked with
 - Open the browser console (F12) for any error messages.
 
 ### Playback issues
-- Verify that `mpv.exe` is in the `mpv/` folder (or in `PATH`).
-- Check that `ffprobe.exe` is available (auto‑downloads on first launch) – used for duration detection.
+- **Windows:** Verify that `mpv.exe` is in the `mpv/` folder (or in `PATH`).
+- **Linux:** Verify `mpv` is installed and on `PATH` (`dnf install mpv`).
+- Check that `ffprobe` is available – used for duration detection (Windows auto-downloads it; Linux needs `dnf install ffmpeg` with RPM Fusion enabled).
 - Review the log file `bambi_browser.log` in the application directory.
+- **Linux:** opacity/click-through/topmost require an XWayland window for mpv — see the Wayland note under Requirements. If mpv ends up as a native Wayland surface with no XWayland, only those specific effects are unavailable; playback itself is unaffected.
 - For BambiCloud, verify the UUID's CDN MP3/WAV file exists. The server logs the selected URL and skips unavailable candidates.
 
 ### Standalone build issues
@@ -199,8 +251,13 @@ All settings are stored in `QSettings` (Windows Registry) and can be locked with
 - The server runs on `127.0.0.1` – it’s local only.
 
 ### Text Replacer or Gag not working
-- AutoHotkey must be installed. The app will attempt to download it automatically to the `ahk/` folder. If that fails, install AutoHotkey manually from [autohotkey.com](https://www.autohotkey.com/).
-- Run the app as Administrator – AutoHotkey works better with elevated privileges.
+- **Windows:** AutoHotkey must be installed. The app will attempt to download it automatically to the `ahk/` folder. If that fails, install AutoHotkey manually from [autohotkey.com](https://www.autohotkey.com/). Run the app as Administrator for best results.
+- **Linux:** these features use an evdev device grab + virtual-input injection instead of AutoHotkey. Make sure `python3-evdev` is installed and your user is in the `input` group (see Requirements). If devices fail to grab, check the app log for a permission error and the group/udev instructions it prints. This is a from-scratch Linux implementation and has a smaller reliability envelope than the Windows AutoHotkey version, especially around detecting which window has focus (Bambi Gag).
+- **Linux, wrong/non-US keyboard layout:** the text replacer detects your active layout via `xkbcommon`/`setxkbmap` at startup and matches keystrokes through it, so non-US layouts (German, French, etc.) should work automatically — no per-layout setting to pick. Run the diagnostics check to confirm what got detected ("Keyboard layout (xkbcommon)"); if it says "couldn't detect layout" it's silently falling back to US, which will misfire on non-US layouts. Note it detects the layout once at startup — switching layouts at runtime (e.g. via a KDE layout-switcher applet) requires restarting the text replacer (or the app) to pick up the change.
+
+### HardLock not blocking input (Linux)
+- Confirm `python3-evdev` is installed and your user is in the `input` group (`groups $USER`), then log out/in after adding yourself.
+- Check the app log for `grabbed_device_count` in the HardLock status — `0` means no devices could be opened, usually a permissions issue.
 
 ---
 

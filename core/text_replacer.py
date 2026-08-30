@@ -1,228 +1,12 @@
-"""OS-level text replacement powered by AutoHotkey - 100% reliable system-wide."""
+"""OS-level text replacement - AutoHotkey on Windows, a native evdev/uinput engine on Linux."""
 
 import logging
-import os
-import subprocess
-import tempfile
-import shutil
-import zipfile
-import urllib.request
-import time
-from pathlib import Path
+import sys
 from typing import Dict, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
-
-# Import get_base_dir
-from core.utils import get_base_dir
+from PyQt6.QtCore import QObject, pyqtSignal
 
 logger = logging.getLogger("BambiBrowser.TextReplacer")
-
-AHK_DOWNLOAD_URL = "https://www.autohotkey.com/download/1.1/AutoHotkey_1.1.37.02.zip"
-
-
-class AHKDownloader(QThread):
-    progress = pyqtSignal(str)
-    finished = pyqtSignal(bool, str)
-
-    def __init__(self, target_dir: Path):
-        super().__init__()
-        self.target_dir = target_dir
-
-    def run(self):
-        try:
-            self.target_dir.mkdir(parents=True, exist_ok=True)
-            zip_path = self.target_dir / "ahk-u64.zip"
-            self.progress.emit("Downloading AutoHotkey...")
-            urllib.request.urlretrieve(AHK_DOWNLOAD_URL, str(zip_path))
-            self.progress.emit("Extracting AutoHotkey...")
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(self.target_dir)
-            zip_path.unlink()
-            for item in self.target_dir.iterdir():
-                if item.is_dir() and item.name.lower() in ["autohotkey", "ahk"]:
-                    for subitem in item.iterdir():
-                        target = self.target_dir / subitem.name
-                        if not target.exists():
-                            shutil.move(str(subitem), str(target))
-                    shutil.rmtree(item)
-            exe_path = None
-            for exe in self.target_dir.rglob("AutoHotkey*.exe"):
-                exe_path = exe
-                break
-            if exe_path and exe_path.exists():
-                self.progress.emit("AutoHotkey installed successfully!")
-                self.finished.emit(True, str(exe_path))
-            else:
-                self.progress.emit("Failed to find AutoHotkey.exe after extraction")
-                self.finished.emit(False, "")
-        except Exception as e:
-            self.progress.emit(f"Download failed: {str(e)}")
-            self.finished.emit(False, "")
-
-
-class AHKManager:
-    def __init__(self):
-        self._ahk_process: Optional[subprocess.Popen] = None
-        self._script_path: Optional[Path] = None
-        self._ahk_exe: Optional[str] = None
-        self._ahk_exe = self._find_autohotkey()
-        if not self._ahk_exe:
-            logger.info("AutoHotkey not found - attempting to download...")
-            self._download_autohotkey_sync()
-            self._ahk_exe = self._find_autohotkey()
-        if self._ahk_exe:
-            logger.info(f"Using AutoHotkey: {self._ahk_exe}")
-
-    def _get_ahk_dir(self) -> Path:
-        # Use get_base_dir() to locate the bundled ahk folder
-        return Path(get_base_dir()) / "ahk"
-
-    def _find_autohotkey(self) -> Optional[str]:
-        candidates = [
-            r"C:\Program Files\AutoHotkey\AutoHotkeyU64.exe",
-            r"C:\Program Files\AutoHotkey\AutoHotkey64.exe",
-            r"C:\Program Files\AutoHotkey\AutoHotkey.exe",
-            r"C:\Program Files (x86)\AutoHotkey\AutoHotkey.exe",
-        ]
-        ahk_dir = self._get_ahk_dir()
-        preferred = ["AutoHotkeyU64.exe", "AutoHotkey64.exe", "AutoHotkeyU32.exe", "AutoHotkeyA32.exe", "AutoHotkey.exe"]
-        for exe_name in preferred:
-            exe_path = ahk_dir / exe_name
-            if exe_path.exists():
-                logger.info(f"Found portable AutoHotkey: {exe_path}")
-                return str(exe_path)
-        if ahk_dir.exists():
-            for exe in ahk_dir.rglob("AutoHotkey*.exe"):
-                logger.info(f"Found portable AutoHotkey at: {exe}")
-                return str(exe)
-        for path in candidates:
-            if Path(path).exists():
-                logger.info(f"Found AutoHotkey at: {path}")
-                return path
-        import shutil
-        ahk_in_path = shutil.which("AutoHotkeyU64.exe") or shutil.which("AutoHotkey.exe")
-        if ahk_in_path:
-            logger.info(f"Found AutoHotkey in PATH: {ahk_in_path}")
-            return ahk_in_path
-        return None
-
-    def _download_autohotkey_sync(self):
-        ahk_dir = self._get_ahk_dir()
-        ahk_dir.mkdir(parents=True, exist_ok=True)
-        zip_path = ahk_dir / "ahk-u64.zip"
-        try:
-            logger.info(f"Downloading AutoHotkey from {AHK_DOWNLOAD_URL}...")
-            urllib.request.urlretrieve(AHK_DOWNLOAD_URL, str(zip_path))
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(ahk_dir)
-            zip_path.unlink()
-            for item in ahk_dir.iterdir():
-                if item.is_dir() and item.name.lower() in ["autohotkey", "ahk"]:
-                    for subitem in item.iterdir():
-                        target = ahk_dir / subitem.name
-                        if not target.exists():
-                            shutil.move(str(subitem), str(target))
-                    shutil.rmtree(item)
-            logger.info("AutoHotkey installed successfully!")
-        except Exception as e:
-            logger.error(f"Failed to download AutoHotkey: {e}")
-
-    @property
-    def is_available(self) -> bool:
-        return self._ahk_exe is not None and Path(self._ahk_exe).exists()
-
-    @property
-    def is_running(self) -> bool:
-        return self._ahk_process is not None and self._ahk_process.poll() is None
-
-    def generate_script(self, rules: Dict[str, str], use_prefix: bool = False, prefix_char: str = ";") -> str:
-        script_lines = [
-            "; ================================================",
-            "; BambiBrowser Auto-Generated Text Replacement",
-            "; ================================================",
-            "", "#NoEnv", "#SingleInstance Force", "#Persistent",
-            "#NoTrayIcon", "SendMode Input", "SetWorkingDir %A_ScriptDir%", ""
-        ]
-        if use_prefix:
-            script_lines.append(f"; Prefix Mode: Type '{prefix_char}' then trigger word")
-            script_lines.append("")
-            for original, replacement in rules.items():
-                if not original or not replacement:
-                    continue
-                escaped = replacement.replace("`", "``").replace("%", "`%").replace(";", "`;")
-                script_lines.append(f":*:{prefix_char}{original}::{escaped}")
-        else:
-            script_lines.append("; Auto-Replace Mode (Requires Space/Enter after word)")
-            script_lines.append("")
-            for original, replacement in rules.items():
-                if not original or not replacement:
-                    continue
-                escaped = replacement.replace("`", "``").replace("%", "`%").replace(";", "`;")
-                script_lines.append(f"::{original}::{escaped}")
-        script_lines.extend(["", "Menu, Tray, Tip, BambiBrowser AHK Active", "TrayTip, BambiBrowser, Text replacement active!, 3, 1"])
-        return "\n".join(script_lines)
-
-    def start(self, rules: Dict[str, str], use_prefix: bool = False, prefix_char: str = ";") -> bool:
-        if not self.is_available:
-            logger.error("AutoHotkey not available")
-            return False
-        self.stop()
-        try:
-            script_content = self.generate_script(rules, use_prefix, prefix_char)
-            temp_dir = Path(tempfile.gettempdir()) / "BambiBrowser"
-            temp_dir.mkdir(exist_ok=True)
-            self._script_path = temp_dir / "bambi_replacements.ahk"
-            self._script_path.write_text(script_content, encoding="utf-8")
-            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            self._ahk_process = subprocess.Popen(
-                [self._ahk_exe, str(self._script_path)],
-                creationflags=creationflags
-            )
-            time.sleep(0.5)
-            if self._ahk_process.poll() is not None:
-                logger.error("AutoHotkey exited immediately")
-                return False
-            logger.info(f"AutoHotkey running with {len(rules)} rules")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to start: {e}")
-            return False
-
-    def stop(self):
-        """Stop the AHK process and clean up script file."""
-        if self._ahk_process:
-            try:
-                self._ahk_process.terminate()
-                self._ahk_process.wait(timeout=2)
-            except:
-                try:
-                    self._ahk_process.kill()
-                except:
-                    pass
-
-            # Force kill if still running
-            if self._ahk_process.poll() is None:
-                try:
-                    subprocess.run(
-                        ["taskkill", "/F", "/PID", str(self._ahk_process.pid)],
-                        capture_output=True, check=False
-                    )
-                except:
-                    pass
-
-            time.sleep(0.1)
-            self._ahk_process = None
-            logger.info("AutoHotkey stopped")
-
-        if self._script_path and self._script_path.exists():
-            try:
-                self._script_path.unlink()
-            except:
-                pass
-
-    def reload(self, rules: Dict[str, str], use_prefix: bool = False, prefix_char: str = ";") -> bool:
-        return self.start(rules, use_prefix, prefix_char)
 
 
 class TextReplacer(QObject):
@@ -237,7 +21,12 @@ class TextReplacer(QObject):
         self._use_prefix = False
         self._prefix_char = ";"
         self._replacement_rules: Dict[str, str] = {}
-        self._ahk = AHKManager()
+        if sys.platform == "win32":
+            from core.windows.ahk_manager import AHKManager
+            self._ahk = AHKManager()
+        else:
+            from core.linux.linux_text_replacer import LinuxTextReplacerEngine
+            self._ahk = LinuxTextReplacerEngine()
 
         # Load from settings manager
         self._load_from_settings()
@@ -455,7 +244,7 @@ class TextReplacer(QObject):
         }
 
     def get_script_preview(self) -> str:
-        return self._ahk.generate_script(
+        return self._ahk.get_script_preview(
             self._replacement_rules,
             self._use_prefix,
             self._prefix_char

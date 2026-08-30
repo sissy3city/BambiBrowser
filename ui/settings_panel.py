@@ -11,13 +11,24 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView,
     QLineEdit, QFileDialog, QTextEdit, QColorDialog
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QPainter, QColor, QBrush
 
 from core.settings_manager import SettingsManager, PlaybackSettings, SafetySettings, TextReplacerSettings
 from ui.otp_dialog import OTPDialog
 
 logger = logging.getLogger("BambiBrowser.UI.Settings")
+
+
+class DiagnosticsWorker(QThread):
+    """Runs core.diagnostics.run_all() off the UI thread - the monitor test
+    takes a few seconds and briefly opens windows on every screen."""
+    finished_with_results = pyqtSignal(list)
+
+    def run(self):
+        from core.diagnostics import run_all
+        results = run_all()
+        self.finished_with_results.emit(results)
 
 
 class IOSToggleSwitch(QWidget):
@@ -183,6 +194,7 @@ class UnifiedSettingsPanel(QWidget):
             QTabBar::tab { background: #151521; color: #888; padding: 10px 20px; margin-right: 2px; }
             QTabBar::tab:selected { background: #1a1a2a; color: #ff6bd6; font-weight: bold; }
         """)
+        self.tabs.addTab(self._create_general_tab(), "⚙️ General")
         self.tabs.addTab(self._create_playback_tab(), "🎬 Bambi Player")
         self.tabs.addTab(self._create_text_replacer_tab(), "📖 Bambi Dictionary")
         self.tabs.addTab(self._create_gag_tab(), "🔇 Bambi Gag")
@@ -193,6 +205,103 @@ class UnifiedSettingsPanel(QWidget):
         self.lock_btn.clicked.connect(self._on_lock_btn_clicked)
         main_layout.addWidget(self.lock_btn)
         self.setLayout(main_layout)
+
+    def _create_general_tab(self) -> QWidget:
+        from core.autostart import is_enabled as autostart_is_enabled
+
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(12)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        self.autostart_row = ToggleRow(
+            "🚀 Start at login",
+            "Launch BambiBrowser automatically when you log in"
+        )
+        self.autostart_row.setChecked(autostart_is_enabled())
+        self.autostart_row.toggled.connect(self._on_autostart_toggled)
+        layout.addWidget(self.autostart_row)
+
+        self.autostart_status = QLabel()
+        self.autostart_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
+        self.autostart_status.setWordWrap(True)
+        self._refresh_autostart_status()
+        layout.addWidget(self.autostart_status)
+
+        self.diagnostics_btn = QPushButton("🔍 Run Diagnostics")
+        self.diagnostics_btn.setToolTip(
+            "Checks mpv/evdev/uinput/xdotool availability, input permissions, "
+            "HardLock, and actually verifies each monitor gets its own window."
+        )
+        self.diagnostics_btn.clicked.connect(self._on_run_diagnostics_clicked)
+        layout.addWidget(self.diagnostics_btn)
+
+        self.diagnostics_status = QLabel()
+        self.diagnostics_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
+        self.diagnostics_status.setWordWrap(True)
+        layout.addWidget(self.diagnostics_status)
+
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
+
+    def _on_run_diagnostics_clicked(self):
+        self.diagnostics_btn.setEnabled(False)
+        self.diagnostics_btn.setText("🔍 Running diagnostics... (a few seconds)")
+        self.diagnostics_status.setText("")
+
+        self._diagnostics_worker = DiagnosticsWorker()
+        self._diagnostics_worker.finished_with_results.connect(self._on_diagnostics_finished)
+        self._diagnostics_worker.start()
+
+    def _on_diagnostics_finished(self, results):
+        from core.diagnostics import format_results, worst_status
+
+        self.diagnostics_btn.setEnabled(True)
+        self.diagnostics_btn.setText("🔍 Run Diagnostics")
+
+        worst = worst_status(results)
+        summary = format_results(results)
+
+        if worst == "pass":
+            self.diagnostics_status.setText("✅ All checks passed.")
+            self.diagnostics_status.setStyleSheet("font-size: 11px; color: #7dff9a; padding: 4px 2px;")
+        elif worst in ("warn", "skip"):
+            self.diagnostics_status.setText("⚠️ Completed with warnings - see details.")
+            self.diagnostics_status.setStyleSheet("font-size: 11px; color: #ffcc9b; padding: 4px 2px;")
+        else:
+            self.diagnostics_status.setText("❌ One or more checks failed - see details.")
+            self.diagnostics_status.setStyleSheet("font-size: 11px; color: #ff6b6b; padding: 4px 2px;")
+
+        box = QMessageBox(self)
+        box.setWindowTitle("BambiBrowser Diagnostics")
+        box.setText(summary)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.exec()
+
+    def _on_autostart_toggled(self, checked: bool):
+        from core.autostart import enable as autostart_enable, disable as autostart_disable
+        if checked:
+            ok, msg = autostart_enable()
+        else:
+            ok, msg = autostart_disable()
+
+        if not ok:
+            QMessageBox.warning(self, "Autostart", f"Could not update autostart:\n{msg}")
+            self.autostart_row.toggle.toggled.disconnect(self._on_autostart_toggled)
+            self.autostart_row.setChecked(not checked)
+            self.autostart_row.toggle.toggled.connect(self._on_autostart_toggled)
+
+        self._refresh_autostart_status()
+
+    def _refresh_autostart_status(self):
+        from core.autostart import is_enabled as autostart_is_enabled
+        if autostart_is_enabled():
+            self.autostart_status.setText("✅ Registered — BambiBrowser will start at login.")
+            self.autostart_status.setStyleSheet("font-size: 11px; color: #7dff9a; padding: 4px 2px;")
+        else:
+            self.autostart_status.setText("⏹ Not registered — BambiBrowser will not start automatically.")
+            self.autostart_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
 
     def _create_playback_tab(self) -> QWidget:
         widget = QWidget()
@@ -1033,11 +1142,6 @@ class UnifiedSettingsPanel(QWidget):
         self.gag_enabled_row.setEnabled(enabled)
         self.gag_remote_input.setEnabled(enabled)
         self.gag_local_row.setEnabled(enabled and not bool(self.gag_remote_input.text().strip()))
-        self.bambicloud_enabled_row.setEnabled(enabled)
-        self.bambicloud_countdown_row.setEnabled(enabled)
-        self.bambicloud_animation_combo.setEnabled(enabled)
-        self.bambicloud_color_combo.setEnabled(enabled)
-        self.bambicloud_countdown_duration_slider.setEnabled(enabled)
 
     def _update_lock_ui(self):
         if self._manager.is_locked:
