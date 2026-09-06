@@ -1,5 +1,6 @@
 # ui/main_window.py
 import os
+import sys
 import logging
 from typing import Optional
 from PyQt6.QtWidgets import (
@@ -33,7 +34,8 @@ class MainWindow(QMainWindow):
 
         # ----- Set window icon (fixes taskbar icon) -----
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        icon_path = os.path.join(base_dir, "resources", "icon.ico")
+        icon_name = "icon.ico" if sys.platform == "win32" else "icon.png"
+        icon_path = os.path.join(base_dir, "resources", icon_name)
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         else:
@@ -42,6 +44,7 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._connect_signals()
         self._apply_settings_to_player()
+        self._apply_initial_text_replacer_state()
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -72,7 +75,8 @@ class MainWindow(QMainWindow):
 
         self.settings_panel = UnifiedSettingsPanel(
             self.settings_manager,
-            gag_manager=self.gag_manager
+            gag_manager=self.gag_manager,
+            text_replacer=self.text_replacer
         )
         self.settings_panel.settings_changed.connect(self._on_settings_changed)
         container_layout.addWidget(self.settings_panel)
@@ -98,6 +102,16 @@ class MainWindow(QMainWindow):
     def _apply_settings_to_player(self):
         settings = self.settings_manager.get_player_settings_dict()
         self.player.update_settings(**settings)
+
+    def _apply_initial_text_replacer_state(self):
+        """Start the text replacer on launch if it was enabled when the app last closed."""
+        if not self.text_replacer:
+            return
+        tr = self.settings_manager.text_replacer
+        if tr.rules:
+            self.text_replacer._replacement_rules = tr.rules.copy()
+        if tr.enabled:
+            self.text_replacer.start()
 
     def _apply_text_replacer_settings(self, settings):
         if not self.text_replacer:
@@ -137,4 +151,4 @@ class MainWindow(QMainWindow):
         self._on_player_status(is_playing)
 
     def update_server_status(self, is_running: bool):
-        pass
+        self._on_server_status(is_running)
