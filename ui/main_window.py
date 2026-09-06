@@ -75,7 +75,8 @@ class MainWindow(QMainWindow):
 
         self.settings_panel = UnifiedSettingsPanel(
             self.settings_manager,
-            gag_manager=self.gag_manager
+            gag_manager=self.gag_manager,
+            text_replacer=self.text_replacer
         )
         self.settings_panel.settings_changed.connect(self._on_settings_changed)
         container_layout.addWidget(self.settings_panel)

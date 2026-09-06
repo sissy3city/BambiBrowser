@@ -160,7 +160,9 @@ class LinuxTextReplacerEngine(QObject):
             return False
 
         try:
-            rmlvo = linux_keymap.detect_rmlvo()
+            # effective_rmlvo() honours the manual keyboard-check override
+            # if Pari set one, otherwise falls back to live auto-detection.
+            rmlvo = linux_keymap.effective_rmlvo()
             self._translator = linux_keymap.KeycodeTranslator(rmlvo)
         except Exception as e:
             logger.error(f"Failed to set up keyboard layout translation: {e}")

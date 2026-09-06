@@ -36,7 +36,7 @@ BambiBrowser/
 │   ├── audio_muter.py        # Dispatcher -> windows/audio_muter_windows.py or linux/audio_muter_linux.py
 │   ├── auto_updater.py       # GitHub update checker & installer
 │   ├── autostart.py          # Start-at-login registration (Registry on Windows, .desktop on Linux)
-│   ├── diagnostics.py        # "Run Diagnostics" checks (mpv/evdev/xdotool, permissions, HardLock, per-monitor windows)
+│   ├── diagnostics.py        # "Run Diagnostics" checks + manual checks (audio tone/noise player, keyboard-layout preview & override)
 │   ├── duration_helper.py    # Video duration detection (ffprobe, VLC, headers)
 │   ├── ffmpeg_downloader.py  # Downloads ffprobe (Windows only; Linux uses the system package)
 │   ├── gag_manager.py        # Bambi Gag - AutoHotkey on Windows, evdev/uinput on Linux
@@ -176,7 +176,9 @@ The standalone application is created under `dist\bambi_browser\bambi_browser.ex
 ### Desktop Application
 
 - The main window opens with **four tabs**:
-  1. **⚙️ General** – Start-at-login toggle and a "Run Diagnostics" check (mpv/evdev/xdotool, permissions, HardLock, per-monitor windows).
+  1. **⚙️ General** – Start-at-login toggle, a "Run Diagnostics" check (mpv/evdev/xdotool, permissions, HardLock, per-monitor windows), and **Manual checks** for inspecting one subsystem on demand:
+     - **🎧 Audio check** – opens a small windowed (non-fullscreen) player showing a test pattern and playing a 440 Hz tone or static noise, shows the current output device and volume, and lets you switch the output device or change the volume (and save it as the Bambi Player volume) on the spot.
+     - **⌨️ Keyboard layout check** – shows the keyboard layout the Bambi Dictionary auto-detected, previews what each physical key would type (normal / with Shift) under any layout you pick, and lets you **force a specific layout + variant** when detection is wrong (e.g. a pure-Wayland session with no XWayland to query). The forced layout is saved and used by the text replacer; if it's running it reloads immediately.
   2. **🎬 Bambi Player** – Playback settings (HardLock, opacity, click‑through, multi‑monitor, volume, audio muting), **Safety Limits** (max single file length, queue duration), and **BambiCloud** (countdown, spiral/custom animation, color scheme).
   3. **📖 Bambi Dictionary** – Enable OS‑level text replacement, manage your replacement rules, import/export presets.
   4. **🔇 Bambi Gag** – Enable the gag, set a remote URL for toggling, or use local toggle.
@@ -253,7 +255,7 @@ All settings are stored via `QSettings` and can be locked with an OTP — on Win
 ### Text Replacer or Gag not working
 - **Windows:** AutoHotkey must be installed. The app will attempt to download it automatically to the `ahk/` folder. If that fails, install AutoHotkey manually from [autohotkey.com](https://www.autohotkey.com/). Run the app as Administrator for best results.
 - **Linux:** these features use an evdev device grab + virtual-input injection instead of AutoHotkey. Make sure `python3-evdev` is installed and your user is in the `input` group (see Requirements). If devices fail to grab, check the app log for a permission error and the group/udev instructions it prints. This is a from-scratch Linux implementation and has a smaller reliability envelope than the Windows AutoHotkey version, especially around detecting which window has focus (Bambi Gag).
-- **Linux, wrong/non-US keyboard layout:** the text replacer detects your active layout via `xkbcommon`/`setxkbmap` at startup and matches keystrokes through it, so non-US layouts (German, French, etc.) should work automatically — no per-layout setting to pick. Run the diagnostics check to confirm what got detected ("Keyboard layout (xkbcommon)"); if it says "couldn't detect layout" it's silently falling back to US, which will misfire on non-US layouts. Note it detects the layout once at startup — switching layouts at runtime (e.g. via a KDE layout-switcher applet) requires restarting the text replacer (or the app) to pick up the change.
+- **Linux, wrong/non-US keyboard layout:** the text replacer detects your active layout via `xkbcommon`/`setxkbmap` at startup and matches keystrokes through it, so non-US layouts (German, French, etc.) should work automatically. Run the diagnostics check to confirm what got detected ("Keyboard layout (xkbcommon)"); if it says "couldn't detect layout" it's silently falling back to US, which will misfire on non-US layouts. If detection is wrong, use **General → Manual checks → ⌨️ Keyboard layout check** to preview what the keys produce and **force the correct layout + variant** — the override is saved and used from then on. Note the layout (detected or forced) is read when the text replacer starts — switching layouts at runtime (e.g. via a KDE layout-switcher applet) requires restarting the text replacer (or the app), or re-applying from the keyboard check, to pick up the change.
 
 ### HardLock not blocking input (Linux)
 - Confirm `python3-evdev` is installed and your user is in the `input` group (`groups $USER`), then log out/in after adding yourself.
