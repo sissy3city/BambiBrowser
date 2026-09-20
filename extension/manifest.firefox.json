@@ -1,18 +1,19 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "BambiBrowser",
   "version": "6.4.0",
   "description": "Send videos to BambiBrowser desktop app",
 
   "permissions": [
-    "storage",
+    "storage"
+  ],
+
+  "host_permissions": [
     "https://hypnotube.com/*",
     "https://*.hypnotube.com/*",
     "https://bambicloud.com/*",
     "https://*.bambicloud.com/*",
     "http://127.0.0.1:5655/*",
-    "http://127.0.0.1/*",
-    "http://localhost/*",
     "http://localhost:5655/*"
   ],
 
@@ -37,7 +38,7 @@
     }
   ],
 
-  "browser_action": {
+  "action": {
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -55,7 +56,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "bambibrowser@example.com",
-      "strict_min_version": "58.0"
+      "strict_min_version": "109.0"
     }
   }
 }

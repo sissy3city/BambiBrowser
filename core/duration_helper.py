@@ -18,11 +18,6 @@ def get_vlc_path() -> Optional[str]:
     """Get VLC executable path."""
     base_dir = Path(__file__).parent.parent
     
-    # Check bundled VLC first
-    vlc_path = base_dir / "vlc" / "vlc.exe"
-    if vlc_path.exists():
-        return str(vlc_path)
-    
     # Check common installation paths
     candidates = [
         r"C:\Program Files\VideoLAN\VLC\vlc.exe",
@@ -37,27 +32,29 @@ def get_vlc_path() -> Optional[str]:
 
 
 def get_ffprobe_path() -> Optional[str]:
-    """Get ffprobe executable path - checks bundled version first."""
-    base_dir = Path(__file__).parent.parent
-    
-    # Check bundled ffmpeg FIRST (highest priority)
-    ffprobe_paths = [
-        base_dir / "ffmpeg" / "bin" / "ffprobe.exe",
-        base_dir / "ffprobe.exe",
-    ]
-    
-    for path in ffprobe_paths:
-        if path.exists():
-            logger.debug(f"Found bundled ffprobe: {path}")
-            return str(path)
-    
-    # Check PATH as fallback
+    """Get ffprobe executable path - checks bundled version first (Windows only)."""
+    import sys
     import shutil
-    ffprobe_in_path = shutil.which("ffprobe")
+
+    if sys.platform == "win32":
+        base_dir = Path(__file__).parent.parent
+        ffprobe_paths = [
+            base_dir / "ffmpeg" / "bin" / "ffprobe.exe",
+            base_dir / "ffprobe.exe",
+        ]
+        for path in ffprobe_paths:
+            if path.exists():
+                logger.debug(f"Found bundled ffprobe: {path}")
+                return str(path)
+        ffprobe_in_path = shutil.which("ffprobe.exe") or shutil.which("ffprobe")
+    else:
+        # No bundled Linux ffprobe - always use the system package (dnf install ffmpeg).
+        ffprobe_in_path = shutil.which("ffprobe")
+
     if ffprobe_in_path:
         logger.debug(f"Found ffprobe in PATH: {ffprobe_in_path}")
         return ffprobe_in_path
-    
+
     return None
 
 

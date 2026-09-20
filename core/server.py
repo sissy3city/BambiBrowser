@@ -10,7 +10,7 @@ import re
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, Qt
 
 if TYPE_CHECKING:
     from core.player import VideoPlayer
@@ -281,7 +281,7 @@ class BambiRequestHandler(BaseHTTPRequestHandler):
             except (HTTPError, URLError, TimeoutError, OSError) as error:
                 logger.info(f"BambiCloud media unavailable: {candidate} ({error})")
         return None
-    
+
     def _handle_stop(self, data: dict):
         if not self.player_instance:
             self._send_json({"error": "no_player"}, 500)

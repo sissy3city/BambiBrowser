@@ -17,6 +17,21 @@ import time
 import subprocess
 from pathlib import Path
 
+# Force Qt's X11 (XWayland) platform plugin instead of letting it pick
+# its native Wayland one. This app leans on X11-specific tooling
+# throughout (xdotool/wmctrl window placement, the XGrabKeyboard
+# fallback, the X11 Shape extension for click-through) - and critically,
+# Qt's native-Wayland clipboard backend only hands off clipboard
+# ownership in direct response to a fresh real input-event serial. Our
+# background-thread-driven clipboard writes (text replacement, Bambi
+# Gag) are programmatic, not tied to a live Wayland input event, so under
+# native Wayland they silently never reach other apps system-wide - we
+# read our own write back fine (it's cached locally) while every other
+# app keeps seeing whatever was last manually copied. XWayland's classic
+# X11 clipboard has no such restriction.
+if sys.platform != "win32" and not os.environ.get("QT_QPA_PLATFORM") and os.environ.get("DISPLAY"):
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt, QTimer
 

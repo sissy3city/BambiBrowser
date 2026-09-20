@@ -9,15 +9,379 @@ from PyQt6.QtWidgets import (
     QLabel, QCheckBox, QSlider, QPushButton,
     QScrollArea, QComboBox, QTabWidget, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QLineEdit, QFileDialog, QTextEdit, QColorDialog
+    QLineEdit, QFileDialog, QTextEdit, QColorDialog,
+    QDialog, QDialogButtonBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QPainter, QColor, QBrush
 
 from core.settings_manager import SettingsManager, PlaybackSettings, SafetySettings, TextReplacerSettings
 from ui.otp_dialog import OTPDialog
 
 logger = logging.getLogger("BambiBrowser.UI.Settings")
+
+
+class DiagnosticsWorker(QThread):
+    """Runs core.diagnostics.run_all() off the UI thread - the monitor test
+    takes a few seconds and briefly opens windows on every screen."""
+    finished_with_results = pyqtSignal(list)
+
+    def run(self):
+        from core.diagnostics import run_all
+        results = run_all()
+        self.finished_with_results.emit(results)
+
+
+class AudioCheckDialog(QDialog):
+    """Manual audio check.
+
+    Automatic diagnostics only prove pactl/wpctl and mpv are installed. This
+    dialog goes further: it shows what audio is actually set to right now,
+    opens a small windowed player (never fullscreen) playing a test pattern
+    plus a tone or static noise so output can be judged by ear, and lets the
+    output device and volume be changed on the spot."""
+
+    def __init__(self, settings_manager, parent=None):
+        super().__init__(parent)
+        from core.diagnostics import AudioTestPlayer
+        self._manager = settings_manager
+        self._player = AudioTestPlayer()
+        self.setWindowTitle("🎧 Audio check")
+        self.setMinimumWidth(480)
+        self._build_ui()
+        self._refresh_report()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        intro = QLabel(
+            "Opens a small player (not fullscreen) with a test pattern and a "
+            "sound. See the window and hear the sound → audio output works. "
+            "Use the controls below to check what it is set to and change it."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        report_group = QGroupBox("What audio is set to right now")
+        rg = QVBoxLayout(report_group)
+        self._report_label = QLabel()
+        self._report_label.setWordWrap(True)
+        self._report_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._report_label.setStyleSheet(
+            "font-family: 'monospace'; font-size: 11px; color: #cfcfe6;"
+        )
+        rg.addWidget(self._report_label)
+        refresh_btn = QPushButton("↻ Refresh")
+        refresh_btn.clicked.connect(self._refresh_report)
+        rg.addWidget(refresh_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(report_group)
+
+        from core.diagnostics import list_output_devices, get_default_output_device
+        self._devices = list_output_devices()
+        if self._devices:
+            dev_row = QHBoxLayout()
+            dev_row.addWidget(QLabel("Output device:"))
+            self._device_combo = QComboBox()
+            for name, desc in self._devices:
+                self._device_combo.addItem(desc, name)
+            default = get_default_output_device()
+            if default:
+                idx = self._device_combo.findData(default)
+                if idx >= 0:
+                    self._device_combo.setCurrentIndex(idx)
+            self._device_combo.currentIndexChanged.connect(self._on_device_changed)
+            dev_row.addWidget(self._device_combo, 1)
+            layout.addLayout(dev_row)
+        else:
+            self._device_combo = None
+
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Test sound:"))
+        self._type_combo = QComboBox()
+        self._type_combo.addItem("440 Hz test tone", self._player.TONE)
+        self._type_combo.addItem("Static noise", self._player.NOISE)
+        self._type_combo.currentIndexChanged.connect(self._on_type_changed)
+        type_row.addWidget(self._type_combo, 1)
+        layout.addLayout(type_row)
+
+        vol_row = QHBoxLayout()
+        vol_row.addWidget(QLabel("🔊 Test volume:"))
+        self._vol_slider = QSlider(Qt.Orientation.Horizontal)
+        self._vol_slider.setRange(0, 100)
+        start_pct = int(round(self._manager.playback.volume / 256 * 100))
+        self._vol_slider.setValue(start_pct)
+        self._vol_label = QLabel(f"{start_pct}%")
+        self._vol_slider.valueChanged.connect(self._on_volume_changed)
+        # If mpv IPC isn't available (e.g. Windows) set_volume can't apply
+        # live; relaunch once on release instead of on every drag tick.
+        self._vol_slider.sliderReleased.connect(self._on_volume_released)
+        vol_row.addWidget(self._vol_slider, 1)
+        vol_row.addWidget(self._vol_label)
+        layout.addLayout(vol_row)
+
+        btn_row = QHBoxLayout()
+        self._play_btn = QPushButton("▶ Play test")
+        self._play_btn.clicked.connect(self._on_play)
+        self._stop_btn = QPushButton("■ Stop")
+        self._stop_btn.clicked.connect(self._on_stop)
+        self._stop_btn.setEnabled(False)
+        btn_row.addWidget(self._play_btn)
+        btn_row.addWidget(self._stop_btn)
+        layout.addLayout(btn_row)
+
+        self._save_btn = QPushButton("Use this volume for the Bambi Player")
+        self._save_btn.clicked.connect(self._on_save_volume)
+        if self._manager.is_locked:
+            self._save_btn.setEnabled(False)
+            self._save_btn.setToolTip("Settings are locked with OTP")
+        layout.addWidget(self._save_btn)
+
+        self._status = QLabel()
+        self._status.setWordWrap(True)
+        self._status.setStyleSheet("font-size: 11px; color: #9a9ab8; padding-top: 4px;")
+        layout.addWidget(self._status)
+
+        close_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close_box.rejected.connect(self.reject)
+        layout.addWidget(close_box)
+
+    # ----- report -----
+    def _refresh_report(self):
+        from core.diagnostics import audio_manual_report, format_results
+        results = audio_manual_report(self._manager.playback.volume)
+        self._report_label.setText(format_results(results))
+
+    # ----- device -----
+    def _on_device_changed(self, _idx):
+        if not self._device_combo:
+            return
+        from core.diagnostics import set_default_output_device
+        name = self._device_combo.currentData()
+        ok, msg = set_default_output_device(name)
+        self._status.setText(("✅ " if ok else "❌ ") + msg)
+        self._refresh_report()
+        if ok and self._player.is_running():
+            self._restart_player()
+
+    # ----- test sound -----
+    def _on_type_changed(self, _idx):
+        if self._player.is_running():
+            self._restart_player()
+
+    def _on_volume_changed(self, value):
+        self._vol_label.setText(f"{value}%")
+        # set_volume applies live over mpv IPC where available; where it isn't,
+        # it just records the value and _on_volume_released relaunches.
+        if self._player.is_running():
+            self._player.set_volume(value)
+
+    def _on_volume_released(self):
+        if self._player.is_running() and self._player.volume != self._vol_slider.value():
+            self._restart_player()
+
+    def _on_play(self):
+        self._restart_player()
+
+    def _restart_player(self):
+        ok, msg = self._player.start(
+            volume_percent=self._vol_slider.value(),
+            kind=self._type_combo.currentData(),
+        )
+        self._status.setText(("▶ " if ok else "❌ ") + msg)
+        self._play_btn.setText("⟳ Restart test" if ok else "▶ Play test")
+        self._stop_btn.setEnabled(ok)
+
+    def _on_stop(self):
+        self._player.stop()
+        self._stop_btn.setEnabled(False)
+        self._play_btn.setText("▶ Play test")
+        self._status.setText("Stopped.")
+
+    def _on_save_volume(self):
+        if self._manager.is_locked:
+            return
+        vol_256 = int(round(self._vol_slider.value() / 100 * 256))
+        # update_playback persists and emits all_settings_changed, which the
+        # panel already listens for to refresh its own volume slider.
+        self._manager.update_playback(volume=vol_256)
+        self._status.setText(f"✅ Bambi Player volume set to {self._vol_slider.value()}%.")
+        self._refresh_report()
+
+    # ----- teardown: never leave the test player running -----
+    def reject(self):
+        self._player.stop()
+        super().reject()
+
+    def closeEvent(self, event):
+        self._player.stop()
+        super().closeEvent(event)
+
+
+class KeyboardCheckDialog(QDialog):
+    """Manual keyboard-layout check.
+
+    The text replacer reads keyboards raw and translates keycodes itself,
+    normally trusting the layout XWayland reports. This dialog shows what was
+    detected, previews what each key would type, and lets a specific layout
+    be forced when detection is wrong (e.g. a pure-Wayland session, or a
+    keyboard that physically differs from the desktop setting)."""
+
+    def __init__(self, settings_manager, text_replacer=None, parent=None):
+        super().__init__(parent)
+        self._manager = settings_manager
+        self._text_replacer = text_replacer
+        self.setWindowTitle("⌨️ Keyboard layout check")
+        self.setMinimumWidth(500)
+        self._build_ui()
+        self._refresh_report()
+        self._refresh_preview()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        intro = QLabel(
+            "The Bambi Dictionary matches what you type by translating keys "
+            "through your keyboard layout. If the wrong layout is detected, "
+            "replacements misfire on non-US keyboards. Check what it found "
+            "below, preview what the keys produce, and force the right layout "
+            "if needed."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        report_group = QGroupBox("What the layout is set to right now")
+        rg = QVBoxLayout(report_group)
+        self._report_label = QLabel()
+        self._report_label.setWordWrap(True)
+        self._report_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._report_label.setStyleSheet(
+            "font-family: 'monospace'; font-size: 11px; color: #cfcfe6;"
+        )
+        rg.addWidget(self._report_label)
+        refresh_btn = QPushButton("↻ Refresh")
+        refresh_btn.clicked.connect(self._refresh_report)
+        rg.addWidget(refresh_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(report_group)
+
+        from core.diagnostics import list_keyboard_layouts, get_keyboard_layout_override
+
+        picker_row = QHBoxLayout()
+        picker_row.addWidget(QLabel("Force layout:"))
+        self._layout_combo = QComboBox()
+        self._layout_combo.addItem("▸ Use detected (no override)", "")
+        for code, desc in list_keyboard_layouts():
+            self._layout_combo.addItem(f"{desc}  [{code}]", code)
+        picker_row.addWidget(self._layout_combo, 1)
+        layout.addLayout(picker_row)
+
+        variant_row = QHBoxLayout()
+        variant_row.addWidget(QLabel("Variant:"))
+        self._variant_combo = QComboBox()
+        self._variant_combo.addItem("default", "")
+        variant_row.addWidget(self._variant_combo, 1)
+        layout.addLayout(variant_row)
+
+        override = get_keyboard_layout_override()
+        if override and override.get("layout"):
+            idx = self._layout_combo.findData(override["layout"])
+            if idx >= 0:
+                self._layout_combo.setCurrentIndex(idx)
+            self._reload_variants(preselect=override.get("variant") or "")
+        self._layout_combo.currentIndexChanged.connect(self._on_layout_picked)
+        self._variant_combo.currentIndexChanged.connect(self._refresh_preview)
+
+        preview_group = QGroupBox("What these keys would type with the selected layout")
+        pg = QVBoxLayout(preview_group)
+        self._preview_label = QLabel()
+        self._preview_label.setWordWrap(True)
+        self._preview_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._preview_label.setStyleSheet(
+            "font-family: 'monospace'; font-size: 12px; color: #f5f5ff;"
+        )
+        pg.addWidget(self._preview_label)
+        hint = QLabel("Each entry is  physical-key → normal / with-Shift.  ·  = no character.")
+        hint.setStyleSheet("font-size: 10px; color: #888;")
+        pg.addWidget(hint)
+        layout.addWidget(preview_group)
+
+        self._apply_btn = QPushButton("Apply this layout")
+        self._apply_btn.clicked.connect(self._on_apply)
+        if self._manager.is_locked:
+            self._apply_btn.setEnabled(False)
+            self._apply_btn.setToolTip("Settings are locked with OTP")
+        layout.addWidget(self._apply_btn)
+
+        self._status = QLabel()
+        self._status.setWordWrap(True)
+        self._status.setStyleSheet("font-size: 11px; color: #9a9ab8; padding-top: 4px;")
+        layout.addWidget(self._status)
+
+        close_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close_box.rejected.connect(self.reject)
+        layout.addWidget(close_box)
+
+    def _reload_variants(self, preselect=""):
+        from core.diagnostics import list_keyboard_variants
+        self._variant_combo.blockSignals(True)
+        self._variant_combo.clear()
+        code = self._layout_combo.currentData()
+        if not code:
+            self._variant_combo.addItem("default", "")
+        else:
+            for vcode, vdesc in list_keyboard_variants(code):
+                self._variant_combo.addItem(vdesc, vcode)
+        idx = self._variant_combo.findData(preselect)
+        if idx >= 0:
+            self._variant_combo.setCurrentIndex(idx)
+        self._variant_combo.blockSignals(False)
+
+    # ----- report / preview -----
+    def _refresh_report(self):
+        from core.diagnostics import keyboard_manual_report, format_results
+        self._report_label.setText(format_results(keyboard_manual_report()))
+
+    def _refresh_preview(self):
+        from core.diagnostics import keyboard_sample_map
+        code = self._layout_combo.currentData()
+        variant = self._variant_combo.currentData()
+        rows = keyboard_sample_map(code or None, variant or None)
+        if not rows:
+            self._preview_label.setText(
+                "(no preview - xkbcommon unavailable, or that layout will not compile)"
+            )
+            return
+        cells = [f"{label:>2} → {base}/{shifted}" for label, base, shifted in rows]
+        lines = ["   ".join(cells[i:i + 4]) for i in range(0, len(cells), 4)]
+        self._preview_label.setText("\n".join(lines))
+
+    # ----- interaction -----
+    def _on_layout_picked(self, _idx):
+        self._reload_variants()
+        self._refresh_preview()
+
+    def _on_apply(self):
+        if self._manager.is_locked:
+            return
+        from core.diagnostics import set_keyboard_layout_override
+        code = self._layout_combo.currentData()
+        variant = self._variant_combo.currentData()
+        ok, msg = set_keyboard_layout_override(code or "", variant or "")
+        prefix = "✅ " if ok else "❌ "
+        if ok and self._text_replacer is not None and getattr(self._text_replacer, "is_enabled", False):
+            # Rebuild the translator now instead of only on next start.
+            try:
+                self._text_replacer._ahk.reload(
+                    self._text_replacer.rules,
+                    self._text_replacer.use_prefix,
+                    self._text_replacer.prefix_char,
+                )
+                msg += " - text replacer reloaded"
+            except Exception as e:
+                msg += f" - restart the Bambi Dictionary to apply ({e})"
+        elif ok:
+            msg += " - takes effect when the Bambi Dictionary next starts"
+        self._status.setText(prefix + msg)
+        self._refresh_report()
 
 
 class IOSToggleSwitch(QWidget):
@@ -158,10 +522,12 @@ class SliderWithAction(QWidget):
 
 class UnifiedSettingsPanel(QWidget):
     settings_changed = pyqtSignal()
-    def __init__(self, settings_manager: SettingsManager, gag_manager=None, parent=None):
+    def __init__(self, settings_manager: SettingsManager, gag_manager=None, parent=None,
+                 text_replacer=None):
         super().__init__(parent)
         self._manager = settings_manager
         self.gag_manager = gag_manager
+        self._text_replacer = text_replacer
         self._user_editing = False
         self._setup_ui()
         self._load_from_manager()
@@ -183,6 +549,7 @@ class UnifiedSettingsPanel(QWidget):
             QTabBar::tab { background: #151521; color: #888; padding: 10px 20px; margin-right: 2px; }
             QTabBar::tab:selected { background: #1a1a2a; color: #ff6bd6; font-weight: bold; }
         """)
+        self.tabs.addTab(self._create_general_tab(), "⚙️ General")
         self.tabs.addTab(self._create_playback_tab(), "🎬 Bambi Player")
         self.tabs.addTab(self._create_text_replacer_tab(), "📖 Bambi Dictionary")
         self.tabs.addTab(self._create_gag_tab(), "🔇 Bambi Gag")
@@ -193,6 +560,139 @@ class UnifiedSettingsPanel(QWidget):
         self.lock_btn.clicked.connect(self._on_lock_btn_clicked)
         main_layout.addWidget(self.lock_btn)
         self.setLayout(main_layout)
+
+    def _create_general_tab(self) -> QWidget:
+        from core.autostart import is_enabled as autostart_is_enabled
+
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(12)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        self.autostart_row = ToggleRow(
+            "🚀 Start at login",
+            "Launch BambiBrowser automatically when you log in"
+        )
+        self.autostart_row.setChecked(autostart_is_enabled())
+        self.autostart_row.toggled.connect(self._on_autostart_toggled)
+        layout.addWidget(self.autostart_row)
+
+        self.autostart_status = QLabel()
+        self.autostart_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
+        self.autostart_status.setWordWrap(True)
+        self._refresh_autostart_status()
+        layout.addWidget(self.autostart_status)
+
+        self.diagnostics_btn = QPushButton("🔍 Run Diagnostics")
+        self.diagnostics_btn.setToolTip(
+            "Checks mpv/evdev/uinput/xdotool availability, input permissions, "
+            "HardLock, and actually verifies each monitor gets its own window."
+        )
+        self.diagnostics_btn.clicked.connect(self._on_run_diagnostics_clicked)
+        layout.addWidget(self.diagnostics_btn)
+
+        self.diagnostics_status = QLabel()
+        self.diagnostics_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
+        self.diagnostics_status.setWordWrap(True)
+        layout.addWidget(self.diagnostics_status)
+
+        manual_label = QLabel("Manual checks")
+        manual_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #f5f5ff; padding-top: 10px;")
+        layout.addWidget(manual_label)
+
+        manual_hint = QLabel(
+            "Inspect one subsystem on demand: see what it is set to, exercise it, "
+            "and change the setting if it is wrong."
+        )
+        manual_hint.setStyleSheet("font-size: 11px; color: #888; padding: 2px 2px 4px 2px;")
+        manual_hint.setWordWrap(True)
+        layout.addWidget(manual_hint)
+
+        self.audio_check_btn = QPushButton("🎧 Audio check")
+        self.audio_check_btn.setToolTip(
+            "Opens a small windowed player with a test pattern and a tone / static "
+            "noise, shows the current audio device and volume, and lets you change them."
+        )
+        self.audio_check_btn.clicked.connect(self._on_audio_check_clicked)
+        layout.addWidget(self.audio_check_btn)
+
+        self.keyboard_check_btn = QPushButton("⌨️ Keyboard layout check")
+        self.keyboard_check_btn.setToolTip(
+            "Shows the keyboard layout the Bambi Dictionary detected, previews what "
+            "each key would type, and lets you force a different layout if it's wrong."
+        )
+        self.keyboard_check_btn.clicked.connect(self._on_keyboard_check_clicked)
+        layout.addWidget(self.keyboard_check_btn)
+
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
+
+    def _on_audio_check_clicked(self):
+        dialog = AudioCheckDialog(self._manager, self)
+        dialog.exec()
+
+    def _on_keyboard_check_clicked(self):
+        dialog = KeyboardCheckDialog(self._manager, self._text_replacer, self)
+        dialog.exec()
+
+    def _on_run_diagnostics_clicked(self):
+        self.diagnostics_btn.setEnabled(False)
+        self.diagnostics_btn.setText("🔍 Running diagnostics... (a few seconds)")
+        self.diagnostics_status.setText("")
+
+        self._diagnostics_worker = DiagnosticsWorker()
+        self._diagnostics_worker.finished_with_results.connect(self._on_diagnostics_finished)
+        self._diagnostics_worker.start()
+
+    def _on_diagnostics_finished(self, results):
+        from core.diagnostics import format_results, worst_status
+
+        self.diagnostics_btn.setEnabled(True)
+        self.diagnostics_btn.setText("🔍 Run Diagnostics")
+
+        worst = worst_status(results)
+        summary = format_results(results)
+
+        if worst == "pass":
+            self.diagnostics_status.setText("✅ All checks passed.")
+            self.diagnostics_status.setStyleSheet("font-size: 11px; color: #7dff9a; padding: 4px 2px;")
+        elif worst in ("warn", "skip"):
+            self.diagnostics_status.setText("⚠️ Completed with warnings - see details.")
+            self.diagnostics_status.setStyleSheet("font-size: 11px; color: #ffcc9b; padding: 4px 2px;")
+        else:
+            self.diagnostics_status.setText("❌ One or more checks failed - see details.")
+            self.diagnostics_status.setStyleSheet("font-size: 11px; color: #ff6b6b; padding: 4px 2px;")
+
+        box = QMessageBox(self)
+        box.setWindowTitle("BambiBrowser Diagnostics")
+        box.setText(summary)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.exec()
+
+    def _on_autostart_toggled(self, checked: bool):
+        from core.autostart import enable as autostart_enable, disable as autostart_disable
+        if checked:
+            ok, msg = autostart_enable()
+        else:
+            ok, msg = autostart_disable()
+
+        if not ok:
+            QMessageBox.warning(self, "Autostart", f"Could not update autostart:\n{msg}")
+            self.autostart_row.toggle.toggled.disconnect(self._on_autostart_toggled)
+            self.autostart_row.setChecked(not checked)
+            self.autostart_row.toggle.toggled.connect(self._on_autostart_toggled)
+
+        self._refresh_autostart_status()
+
+    def _refresh_autostart_status(self):
+        from core.autostart import is_enabled as autostart_is_enabled
+        if autostart_is_enabled():
+            self.autostart_status.setText("✅ Registered — BambiBrowser will start at login.")
+            self.autostart_status.setStyleSheet("font-size: 11px; color: #7dff9a; padding: 4px 2px;")
+        else:
+            self.autostart_status.setText("⏹ Not registered — BambiBrowser will not start automatically.")
+            self.autostart_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
 
     def _create_playback_tab(self) -> QWidget:
         widget = QWidget()
@@ -1033,11 +1533,6 @@ class UnifiedSettingsPanel(QWidget):
         self.gag_enabled_row.setEnabled(enabled)
         self.gag_remote_input.setEnabled(enabled)
         self.gag_local_row.setEnabled(enabled and not bool(self.gag_remote_input.text().strip()))
-        self.bambicloud_enabled_row.setEnabled(enabled)
-        self.bambicloud_countdown_row.setEnabled(enabled)
-        self.bambicloud_animation_combo.setEnabled(enabled)
-        self.bambicloud_color_combo.setEnabled(enabled)
-        self.bambicloud_countdown_duration_slider.setEnabled(enabled)
 
     def _update_lock_ui(self):
         if self._manager.is_locked:

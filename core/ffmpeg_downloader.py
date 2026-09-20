@@ -194,9 +194,18 @@ def ensure_ffprobe(base_dir: Path) -> Optional[str]:
         logger.info(f"ffprobe found at: {ffprobe_path}")
         return ffprobe_path
     
-    # Not found - ask user if they want to download
+    # Not found - needed for accurate video duration detection
     logger.info("ffprobe not found - needed for accurate video duration detection")
-    
+
+    import sys
+    if sys.platform != "win32":
+        # No Linux build is bundled/downloaded here - it's a system package.
+        logger.warning(
+            "ffprobe not found. Install it with: sudo dnf install ffmpeg ffmpeg-libs "
+            "(requires RPM Fusion on stock Fedora). Duration detection will use estimates until then."
+        )
+        return None
+
     # In GUI mode, we can ask the user
     try:
         from PyQt6.QtWidgets import QApplication, QMessageBox

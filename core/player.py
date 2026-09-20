@@ -1,4 +1,4 @@
-"""Video player using mpv directly – multi‑screen, sync‑free, with queue support."""
+"""Video player using mpv directly - multi-screen, sync-free, with queue support."""
 
 import os
 import sys
@@ -26,6 +26,9 @@ except ImportError:
 
 from core.hard_lock import HardLock
 from core.audio_muter import mute_other_applications, unmute_all_applications, is_audio_muting_available
+from core.window_manager import apply_window_properties
+
+logger = logging.getLogger("BambiBrowser.Player")
 
 
 class SpiralCanvas(QWidget):
@@ -123,31 +126,24 @@ class SpiralCanvas(QWidget):
         painter.setFont(QFont('Arial', 28, QFont.Weight.Bold))
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.words[self.word_index])
 
-logger = logging.getLogger("BambiBrowser.Player")
-
-# Windows API for window properties
-try:
-    import win32gui
-    import win32con
-    import win32process
-    WINDOWS_API = True
-except ImportError:
-    WINDOWS_API = False
-    logger.warning("pywin32 not available – opacity/click‑through disabled")
-
 
 def get_mpv_path() -> Optional[Path]:
     """Locate mpv executable in bundled folder or system PATH."""
     base = Path(__file__).parent.parent
-    candidates = [
-        base / "mpv" / "mpv.exe",
-        base / "mpv" / "mpv.com",
-        base / "mpv.exe",
-    ]
-    for cand in candidates:
-        if cand.exists():
-            return cand
-    which = shutil.which("mpv.exe")
+
+    if sys.platform == "win32":
+        candidates = [
+            base / "mpv" / "mpv.exe",
+            base / "mpv" / "mpv.com",
+            base / "mpv.exe",
+        ]
+        for cand in candidates:
+            if cand.exists():
+                return cand
+        which = shutil.which("mpv.exe")
+        return Path(which) if which else None
+
+    which = shutil.which("mpv")
     return Path(which) if which else None
 
 
@@ -166,10 +162,11 @@ class MPVProcess(QObject):
         self._mpv_path = get_mpv_path()
 
         if not self._mpv_path:
-            logger.error(f"mpv.exe not found for screen {screen_index}")
+            logger.error(f"mpv not found for screen {screen_index}")
 
     def _build_command(self, url: str) -> List[str]:
         """Build the mpv command line."""
+        is_bambicloud_audio = self.settings.get('bambicloud_audioOnly') or self.settings.get('bambicloud_audio_only')
         cmd = [
             str(self._mpv_path),
             url,
@@ -182,7 +179,7 @@ class MPVProcess(QObject):
             "--no-osc",
             "--really-quiet",
             "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            f"--referrer={'https://bambicloud.com/' if self.settings.get('bambicloud_audioOnly') or self.settings.get('bambicloud_audio_only') else 'https://hypnotube.com/'}",
+            f"--referrer={'https://bambicloud.com/' if is_bambicloud_audio else 'https://hypnotube.com/'}",
             "--hwdec=auto-safe",
             "--vo=gpu-next",
             "--video-sync=display-resample",
@@ -198,7 +195,7 @@ class MPVProcess(QObject):
             percent = min(100, int(volume * 100 / 256))
             cmd.append(f"--volume={percent}")
 
-        if self.settings.get('bambicloud_audioOnly') or self.settings.get('bambicloud_audio_only'):
+        if is_bambicloud_audio:
             cmd = [argument for argument in cmd if not argument.startswith(("--hwdec=", "--vo=", "--video-sync=", "--profile="))]
             cmd.extend([
                 "--no-video",
@@ -212,22 +209,36 @@ class MPVProcess(QObject):
     def start(self, url: str) -> bool:
         """Launch mpv."""
         if not self._mpv_path:
-            self.error_occurred.emit("mpv.exe not found")
+            self.error_occurred.emit("mpv not found")
             return False
 
         cmd = self._build_command(url)
         try:
             creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            env = None
+            if sys.platform != "win32":
+                # Force mpv onto XWayland rather than a native Wayland surface.
+                # Wayland doesn't let a client place itself on an arbitrary
+                # monitor - under a native Wayland surface, --screen=N and all
+                # of core/linux/window_manager_linux.py's opacity/click-through/
+                # topmost handling silently do nothing and every instance
+                # collapses onto the compositor's active output. Stripping
+                # WAYLAND_DISPLAY makes mpv fall back to X11/XWayland, where
+                # --screen=N correctly targets the same monitor indices Qt
+                # reports via get_available_monitors().
+                env = os.environ.copy()
+                env.pop("WAYLAND_DISPLAY", None)
             self._process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                creationflags=creationflags
+                creationflags=creationflags,
+                env=env,
             )
             self._is_playing = True
             logger.info(f"Screen {self.screen_index}: mpv started (PID {self._process.pid})")
 
-            if WINDOWS_API and (self.settings.get('click_through') or self.settings.get('opacity', 100) < 100):
+            if self.settings.get('click_through') or self.settings.get('opacity', 100) < 100:
                 QTimer.singleShot(800, self._apply_window_properties)
 
             QTimer.singleShot(500, self._check_process)
@@ -247,35 +258,13 @@ class MPVProcess(QObject):
             QTimer.singleShot(500, self._check_process)
 
     def _apply_window_properties(self):
-        if not WINDOWS_API or not self._process:
+        if not self._process:
             return
-        try:
-            def enum_callback(hwnd, windows):
-                if win32gui.IsWindowVisible(hwnd) and win32gui.GetClassName(hwnd) == "mpv":
-                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                    if pid == self._process.pid:
-                        windows.append(hwnd)
-                return True
-
-            windows = []
-            win32gui.EnumWindows(enum_callback, windows)
-            if windows:
-                hwnd = windows[0]
-                style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-                opacity = self.settings.get('opacity', 100)
-                if opacity < 100:
-                    alpha = int(opacity * 255 / 100)
-                    win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style | win32con.WS_EX_LAYERED)
-                    win32gui.SetLayeredWindowAttributes(hwnd, 0, alpha, win32con.LWA_ALPHA)
-                if self.settings.get('click_through'):
-                    win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE,
-                                           style | win32con.WS_EX_TRANSPARENT | win32con.WS_EX_LAYERED)
-                win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
-                                      win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE)
-            else:
-                QTimer.singleShot(500, self._apply_window_properties)
-        except Exception as e:
-            logger.debug(f"Window properties error: {e}")
+        opacity = self.settings.get('opacity', 100)
+        click_through = self.settings.get('click_through', False)
+        applied = apply_window_properties(self._process.pid, opacity, click_through)
+        if not applied and self.is_playing:
+            QTimer.singleShot(500, self._apply_window_properties)
 
     def stop(self):
         if self._process and self._process.poll() is None:
@@ -333,10 +322,15 @@ class SeamlessPlaybackManager(QObject):
             self._players[screen] = player
 
         if self._input_lock_enabled:
-            self._apply_hard_lock()
+            QTimer.singleShot(1000, self._apply_hard_lock)
 
         if self._mute_other_audio and is_audio_muting_available():
-            if mute_other_applications():
+            mpv_pids = [
+                player._process.pid
+                for player in self._players.values()
+                if player._process is not None
+            ]
+            if mute_other_applications(keep_pids=mpv_pids):
                 self._audio_muted = True
                 logger.info("System audio muted for other applications")
             else:
@@ -350,7 +344,7 @@ class SeamlessPlaybackManager(QObject):
                 if player.is_playing:
                     self.hard_lock.lock()
                     self._lock_applied = True
-                    logger.info("🔒 HARDLOCK ACTIVE")
+                    logger.info("HARDLOCK ACTIVE")
                     return
             QTimer.singleShot(500, self._apply_hard_lock)
 
@@ -446,7 +440,6 @@ class VideoPlayer(QObject):
         self._bambicloud_animation_type = settings.value("bambicloud/animation_type", "spiral", type=str)
         self._bambicloud_color_scheme = settings.value("bambicloud/color_scheme", "neon", type=str)
         self._bambicloud_custom_animation_path = settings.value("bambicloud/custom_animation_path", "", type=str)
-        self._bambicloud_custom_animation_path = settings.value("bambicloud/custom_animation_path", "", type=str)
         self._bambicloud_custom_colors = settings.value("bambicloud/custom_colors", "#ff6bd6,#00ff00,#ff00ff", type=str)
         stored_countdown = settings.value("bambicloud/countdown_duration_seconds", None, type=int)
         if stored_countdown is None:
@@ -475,7 +468,7 @@ class VideoPlayer(QObject):
         self._pending_playback_after_spiral = False
 
         if not get_mpv_path():
-            logger.error("mpv.exe not found – playback unavailable")
+            logger.error("mpv not found - playback unavailable")
         else:
             logger.info("VideoPlayer initialized (mpv direct with queue)")
 
@@ -867,7 +860,7 @@ class VideoPlayer(QObject):
         self.update_settings(**kwargs)
 
         if not self.vlc_available:
-            self.error_occurred.emit("mpv.exe not found")
+            self.error_occurred.emit("mpv not found")
             return False
 
         # Determine monitors
@@ -919,9 +912,9 @@ class VideoPlayer(QObject):
                     self.clear_queue()
                 # Warn Only: continue
 
-        # Queue requests exactly like regular Hypnotube playback when a session is active.
-        is_bambicloud_content = qv.settings.get('bambicloud', False)
-        if (not self._is_playing and self._bambicloud_countdown_enabled):
+        # Show the shared pre-play countdown (BambiCloud gets the spiral on top of it;
+        # Hypnotube uses the countdown alone) before starting the first video of a session.
+        if not self._is_playing and self._bambicloud_countdown_enabled:
             self._show_countdown_overlay(qv, monitors)
             return True
 

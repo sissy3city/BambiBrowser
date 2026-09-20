@@ -774,6 +774,7 @@
         e.stopImmediatePropagation();
         return false;
       }
+      // Block everything except Escape during HardLock
       if (key !== 'Escape') {
         e.preventDefault();
         e.stopPropagation();

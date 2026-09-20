@@ -16,10 +16,10 @@ def get_base_dir():
 def setup_logging(base_dir: str) -> logging.Logger:
     """Setup logging configuration."""
     log_path = os.path.join(base_dir, "bambi_browser.log")
-    
+
     logger = logging.getLogger("BambiBrowser")
     logger.setLevel(logging.INFO)
-    
+
     # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
@@ -29,7 +29,7 @@ def setup_logging(base_dir: str) -> logging.Logger:
     )
     console_handler.setFormatter(console_format)
     logger.addHandler(console_handler)
-    
+
     # File handler
     try:
         file_handler = logging.FileHandler(log_path, encoding="utf-8")
@@ -41,5 +41,5 @@ def setup_logging(base_dir: str) -> logging.Logger:
         logger.addHandler(file_handler)
     except Exception as e:
         logger.warning(f"Could not create log file: {e}")
-    
+
     return logger
