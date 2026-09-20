@@ -29,6 +29,8 @@ VK_TAB = 0x09
 VK_ESCAPE = 0x1B
 VK_CONTROL = 0x11
 VK_MENU = 0x12  # Alt
+VK_DELETE = 0x2E
+VK_F4 = 0x73
 
 
 class KBDLLHOOKSTRUCT(ctypes.Structure):
@@ -339,6 +341,15 @@ class WindowsHardLock:
                     return 1
                 if vk == VK_ESCAPE and user32.GetAsyncKeyState(VK_CONTROL) & 0x8000:
                     return 1
+                # Suppress Alt+F4 (shutdown dialog)
+                if vk == VK_F4 and user32.GetAsyncKeyState(VK_MENU) & 0x8000:
+                    return 1
+                # Suppress Ctrl+Alt+Del (Windows security screen)
+                if vk == VK_DELETE:
+                    ctrl_down = user32.GetAsyncKeyState(VK_CONTROL) & 0x8000
+                    alt_down = user32.GetAsyncKeyState(VK_MENU) & 0x8000
+                    if ctrl_down and alt_down:
+                        return 1
 
             return user32.CallNextHookExW(None, nCode, wParam, lParam)
 
@@ -348,7 +359,7 @@ class WindowsHardLock:
         )
 
         if self._low_level_hook:
-            logger.info("Low-level keyboard hook installed (blocks Win, Alt+Tab, Ctrl+Esc)")
+            logger.info("Low-level keyboard hook installed (blocks Win, Alt+Tab, Ctrl+Esc, Alt+F4, Ctrl+Alt+Del)")
         else:
             logger.warning("Failed to install low-level keyboard hook")
 

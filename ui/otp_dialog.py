@@ -5,7 +5,7 @@ import hashlib
 import secrets
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QLineEdit, 
+    QDialog, QVBoxLayout, QLabel, QLineEdit,
     QPushButton, QDialogButtonBox, QMessageBox
 )
 from PyQt6.QtCore import Qt
@@ -15,7 +15,7 @@ from ui.styles import DARK_THEME
 
 class OTPDialog(QDialog):
     """Dialog for OTP creation and verification."""
-    
+
     def __init__(self, mode: str = "set", stored_hash: str = None, parent=None):
         """
         Args:
@@ -26,19 +26,19 @@ class OTPDialog(QDialog):
         self.mode = mode
         self.stored_hash = stored_hash
         self.generated_otp = None
-        
-        self.setWindowTitle("🔒 BambiLock" + (" - Create Code" if mode == "set" else " - Verify Code"))
+
+        self.setWindowTitle("🔒 BambiBrowser" + (" - Create Code" if mode == "set" else " - Verify Code"))
         self.setFixedSize(420, 300 if mode == "set" else 240)
         self.setModal(True)
         self.setStyleSheet(DARK_THEME)
-        
+
         self._setup_ui()
-    
+
     def _setup_ui(self):
         layout = QVBoxLayout()
         layout.setSpacing(15)
         layout.setContentsMargins(25, 25, 25, 25)
-        
+
         # Title
         if self.mode == "set":
             title = QLabel("🔐 Create Your BambiCode")
@@ -48,7 +48,7 @@ class OTPDialog(QDialog):
             title.setStyleSheet("font-size: 18px; font-weight: bold; color: #ff6bd6;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-        
+
         # Description
         if self.mode == "set":
             desc = QLabel(
@@ -62,35 +62,35 @@ class OTPDialog(QDialog):
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setWordWrap(True)
         layout.addWidget(desc)
-        
+
         # OTP Display (set mode only)
         if self.mode == "set":
             self.generated_otp = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
-            
-            code_label = QLabel("Your new BambiCode:")
-            code_label.setStyleSheet("font-size: 11px; color: #888;")
-            code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(code_label)
-            
-            otp_display = QLabel(self.generated_otp)
-            otp_display.setStyleSheet("""
-                font-size: 36px;
-                font-weight: bold;
-                color: #34c759;
-                background: #151521;
-                padding: 15px;
-                border-radius: 10px;
-                font-family: monospace;
-                letter-spacing: 10px;
-            """)
-            otp_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(otp_display)
-            
-            warning = QLabel("⚠️ WRITE THIS DOWN - NO RECOVERY POSSIBLE!")
-            warning.setStyleSheet("font-size: 11px; color: #ff6b6b; font-weight: bold;")
-            warning.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(warning)
-        
+
+        code_label = QLabel("Your new BambiCode:")
+        code_label.setStyleSheet("font-size: 11px; color: #888;")
+        code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(code_label)
+
+        self.otp_display = QLabel(self.generated_otp if self.mode == "set" else "")
+        self.otp_display.setStyleSheet("""
+            font-size: 36px;
+            font-weight: bold;
+            color: #34c759;
+            background: #151521;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: monospace;
+            letter-spacing: 10px;
+        """)
+        self.otp_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.otp_display)
+
+        warning = QLabel("⚠️ WRITE THIS DOWN IMMEDIATELY - NO RECOVERY POSSIBLE!")
+        warning.setStyleSheet("font-size: 11px; color: #ff6b6b; font-weight: bold;")
+        warning.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(warning)
+
         # OTP Input (verify mode only)
         if self.mode == "verify":
             self.otp_input = QLineEdit()
@@ -105,10 +105,10 @@ class OTPDialog(QDialog):
             """)
             self.otp_input.returnPressed.connect(self._verify)
             layout.addWidget(self.otp_input)
-        
+
         # Buttons
         buttons = QDialogButtonBox()
-        
+
         if self.mode == "set":
             confirm_btn = QPushButton("✓ I've Saved This Code - Lock Settings")
             confirm_btn.setStyleSheet("""
@@ -143,7 +143,7 @@ class OTPDialog(QDialog):
             """)
             verify_btn.clicked.connect(self._verify)
             buttons.addButton(verify_btn, QDialogButtonBox.ButtonRole.AcceptRole)
-        
+
         cancel_btn = QPushButton("✕ Cancel")
         cancel_btn.setStyleSheet("""
             QPushButton {
@@ -160,24 +160,24 @@ class OTPDialog(QDialog):
         """)
         cancel_btn.clicked.connect(self.reject)
         buttons.addButton(cancel_btn, QDialogButtonBox.ButtonRole.RejectRole)
-        
+
         layout.addWidget(buttons)
         self.setLayout(layout)
-        
+
         if self.mode == "verify":
             self.otp_input.setFocus()
-    
+
     def _verify(self):
         """Verify entered OTP against stored hash."""
         if self.mode != "verify":
             self.accept()
             return
-        
+
         entered = self.otp_input.text().strip()
         if len(entered) != 6 or not entered.isdigit():
             QMessageBox.warning(self, "Invalid Code", "Please enter a 6-digit code.")
             return
-        
+
         entered_hash = hashlib.sha256(entered.encode()).hexdigest()
         if entered_hash == self.stored_hash:
             self.accept()
@@ -185,10 +185,14 @@ class OTPDialog(QDialog):
             QMessageBox.warning(self, "Wrong Code", "Invalid BambiCode. Try again.")
             self.otp_input.clear()
             self.otp_input.setFocus()
-    
+
     def get_otp(self) -> str:
         """Get the OTP (entered or generated)."""
         if self.mode == "set":
             return self.generated_otp
         else:
             return self.otp_input.text().strip()
+
+    def closeEvent(self, event):
+        """Clean up on close."""
+        super().closeEvent(event)

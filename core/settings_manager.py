@@ -20,6 +20,7 @@ class PlaybackSettings:
     selected_monitors: List[int] = field(default_factory=list)
     volume: int = 256
     mute_other_audio: bool = False
+    autostart_enabled: bool = True  # New setting for autostart toggle
 
 @dataclass
 class SafetySettings:
@@ -250,6 +251,7 @@ class SettingsManager(QObject):
         self._playback.selected_monitors = self._qsettings.value("playback/selected_monitors", [], type=list)
         self._playback.volume = self._qsettings.value("playback/volume", 256, type=int)
         self._playback.mute_other_audio = self._qsettings.value("playback/mute_other_audio", False, type=bool)
+        self._playback.autostart_enabled = self._qsettings.value("playback/autostart_enabled", True, type=bool)
 
         self._safety.max_video_length_enabled = self._qsettings.value("safety/max_video_length_enabled", False, type=bool)
         self._safety.max_video_length_minutes = self._qsettings.value("safety/max_video_length_minutes", 10, type=int)
@@ -304,6 +306,7 @@ class SettingsManager(QObject):
         self._qsettings.setValue("playback/selected_monitors", self._playback.selected_monitors)
         self._qsettings.setValue("playback/volume", self._playback.volume)
         self._qsettings.setValue("playback/mute_other_audio", self._playback.mute_other_audio)
+        self._qsettings.setValue("playback/autostart_enabled", self._playback.autostart_enabled)
 
     def _save_safety(self):
         self._qsettings.setValue("safety/max_video_length_enabled", self._safety.max_video_length_enabled)
@@ -355,4 +358,5 @@ class SettingsManager(QObject):
             "bambicloud_custom_colors": self._bambicloud.custom_colors,
             "bambicloud_countdown_duration": self._bambicloud.countdown_duration,
             "bambicloud_countdown_enabled": self._bambicloud.countdown_enabled,
+            "autostart_enabled": self._playback.autostart_enabled,
         }

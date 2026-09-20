@@ -15,6 +15,7 @@ import traceback
 import atexit
 import time
 import subprocess
+import winreg
 from pathlib import Path
 
 # Force Qt's X11 (XWayland) platform plugin instead of letting it pick
@@ -177,10 +178,56 @@ def create_version_file(base_dir, logger):
     if not version_file.exists():
         try:
             with open(version_file, 'w', encoding='utf-8') as f:
-                f.write("6.3.0")   # <-- Updated to 6.3.0
-            logger.info("Created VERSION file with 6.3.0")
+                f.write("6.5.0")   # <-- Updated to 6.5.0
+            logger.info("Created VERSION file with 6.5.0")
         except Exception as e:
             logger.warning(f"Could not create VERSION file: {e}")
+
+
+def set_autostart(enable=True):
+    """Set or remove BambiBrowser from Windows startup."""
+    try:
+        # Determine the executable path
+        if getattr(sys, 'frozen', False):
+            # Running as bundled executable
+            app_path = sys.executable
+        else:
+            # Running as script
+            app_path = f'"{sys.executable}" "{os.path.abspath(__file__)}"'
+
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        key_name = "BambiBrowser"
+
+        # Open the key
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE)
+        except FileNotFoundError:
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+
+        if enable:
+            # Check current value
+            try:
+                current_value, _ = winreg.QueryValueEx(key, key_name)
+                if current_value == app_path:
+                    winreg.CloseKey(key)
+                    return  # Already set correctly
+            except FileNotFoundError:
+                pass  # Value doesn't exist, we'll set it
+
+            # Set the value
+            winreg.SetValueEx(key, key_name, 0, winreg.REG_SZ, app_path)
+            logging.info(f"Set autostart: {app_path}")
+        else:
+            # Remove the value
+            try:
+                winreg.DeleteValue(key, key_name)
+                logging.info("Removed autostart")
+            except FileNotFoundError:
+                pass  # Already removed
+
+        winreg.CloseKey(key)
+    except Exception as e:
+        logging.warning(f"Failed to set autostart: {e}")
 
 
 class BambiBrowserApp:
@@ -200,7 +247,7 @@ class BambiBrowserApp:
         )
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("BambiBrowser")
-        self.app.setApplicationVersion("6.3.0")   # <-- Updated to 6.3.0
+        self.app.setApplicationVersion("6.5.0")   # <-- Updated to 6.5.0
         self.app.setQuitOnLastWindowClosed(False)
 
         # Import core modules
@@ -405,6 +452,11 @@ def main():
 
     base_dir = get_base_dir()
     kill_old_instance(base_dir)
+    # Set autostart registry entry based on settings
+    from PyQt6.QtCore import QSettings
+    settings = QSettings("BambiBrowser", "Settings")
+    autostart_enabled = settings.value("playback/autostart_enabled", True, type=bool)
+    set_autostart(autostart_enabled)
     try:
         app = BambiBrowserApp()
         return app.start()

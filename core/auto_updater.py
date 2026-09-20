@@ -269,6 +269,13 @@ class AutoUpdater(QObject):
         try:
             logger.info(f"Installing update from {update_file}...")
             
+            # Check if we have write access to the app directory
+            import os
+            if not os.access(self.app_dir, os.W_OK):
+                raise PermissionError(
+                    f"No write permission to application directory: {self.app_dir}. "
+                    f"Please run BambiBrowser as administrator to enable auto-updates."
+                )
             update_path = Path(update_file)
             if not update_path.exists():
                 raise FileNotFoundError(f"Update file not found: {update_file}")
