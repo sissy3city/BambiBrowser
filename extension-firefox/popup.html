@@ -100,6 +100,46 @@
       margin-top: 12px;
       text-align: center;
     }
+    .settings {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #26263a;
+    }
+    .settings h3 {
+      margin: 0 0 8px;
+      color: #ff6bd6;
+      font-size: 13px;
+    }
+    .site-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      font-size: 12px;
+    }
+    .site-row input[type="checkbox"] { accent-color: #ff6bd6; }
+    .custom-site {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .custom-site input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 7px;
+      border: 1px solid #33334a;
+      border-radius: 5px;
+      background: #151521;
+      color: #f5f5ff;
+    }
+    .custom-entry {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      font-size: 11px;
+    }
+    .custom-entry button { width: auto; margin: 0; padding: 4px 8px; }
   </style>
 </head>
 <body>
@@ -123,11 +163,29 @@
   
   <button id="openApp" class="secondary">Open Desktop App</button>
 
+  <section class="settings" aria-label="Supported sites">
+    <h3>Supported sites</h3>
+    <div id="siteList"></div>
+    <div class="custom-site">
+      <input id="customLabel" type="text" placeholder="Custom site name">
+      <input id="customHosts" type="text" placeholder="Hosts, e.g. example.com, *.example.com">
+      <input id="customSelector" type="text" value="video" placeholder="Video CSS selector">
+      <button id="addCustomSite">Add custom site</button>
+    </div>
+    <div class="detector-import-export">
+      <h4>Detector Import/Export</h4>
+      <button id="exportDetectors">Export Detectors</button>
+      <input type="file" id="importDetectorFile" accept=".json,.js" style="display: none;">
+      <button id="importDetectorTrigger">Import Detector</button>
+    </div>
+  </section>
+
   <div class="hint" id="hintText">
     App online → MPV fullscreen<br>
     App offline → Browser fullscreen
   </div>
   
+  <script src="site_config.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

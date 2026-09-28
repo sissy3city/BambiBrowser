@@ -5,7 +5,7 @@ import secrets
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 
 from PyQt6.QtCore import QObject, pyqtSignal, QSettings
 
@@ -43,6 +43,12 @@ class GagSettings:
     enabled: bool = False
     remote_url: str = ""
     local_toggle: bool = False
+    target_programs: List[str] = field(default_factory=lambda: ["discord", "discord_ptb", "discord_canary", "chrome"])
+    force_everywhere: bool = False
+
+class TraySettings:
+    def __init__(self):
+        self.start_minimized = False
 
 @dataclass
 class BambicloudSettings:
@@ -53,6 +59,10 @@ class BambicloudSettings:
     custom_colors: str = "#ff6bd6,#00ff00,#ff00ff"
     countdown_duration: int = 120   # seconds
     countdown_enabled: bool = True
+
+@dataclass
+class ScreenLockSettings:
+    enabled: bool = False
 
 class SettingsManager(QObject):
     lock_state_changed = pyqtSignal(bool)
@@ -72,6 +82,8 @@ class SettingsManager(QObject):
         self._text_replacer = TextReplacerSettings()
         self._gag = GagSettings()
         self._bambicloud = BambicloudSettings()
+        self._screenlock = ScreenLockSettings()
+        self._tray = TraySettings()
 
         self._text_replacer.rules = {
             "i": "Bambi", "me": "Bambi", "my": "Bambi's", "mine": "Bambi's",
@@ -100,12 +112,20 @@ class SettingsManager(QObject):
         return self._text_replacer
 
     @property
+    def tray(self) -> TraySettings:
+        return self._tray
+
+    @property
     def gag(self) -> GagSettings:
         return self._gag
 
     @property
     def bambicloud(self) -> BambicloudSettings:
         return self._bambicloud
+
+    @property
+    def screenlock(self) -> ScreenLockSettings:
+        return self._screenlock
 
     def get_stored_otp_hash(self) -> Optional[str]:
         hash_val = self._qsettings.value("otp_hash", "")
@@ -234,11 +254,74 @@ class SettingsManager(QObject):
         self.all_settings_changed.emit()
         return True
 
+    def update_tray(self, **kwargs) -> bool:
+        if self._check_locked():
+            return False
+        for key, value in kwargs.items():
+            if hasattr(self._tray, key):
+                setattr(self._tray, key, value)
+        self._save_tray()
+        # No specific signal for tray settings change, but we emit all_settings_changed
+        self.all_settings_changed.emit()
+        return True
+
     def get_gag_settings(self) -> GagSettings:
         return self._gag
 
     def get_bambicloud_settings(self) -> BambicloudSettings:
         return self._bambicloud
+
+    def export_settings(self) -> Dict[str, Any]:
+        """Return shareable settings without the local OTP lock secret."""
+        return {
+            "format": "BambiBrowser settings",
+            "version": 1,
+            "playback": asdict(self._playback),
+            "safety": asdict(self._safety),
+            "text_replacer": asdict(self._text_replacer),
+            "gag": asdict(self._gag),
+            "bambicloud": asdict(self._bambicloud),
+            "screenlock": asdict(self._screenlock),
+            "tray": {"start_minimized": self._tray.start_minimized},
+        }
+
+    def import_settings(self, data: Dict[str, Any]) -> bool:
+        """Apply a compatible exported settings document, never importing OTP."""
+        if self._check_locked():
+            return False
+        if not isinstance(data, dict) or data.get("format") != "BambiBrowser settings":
+            raise ValueError("This file is not a BambiBrowser settings export.")
+        if data.get("version") != 1:
+            raise ValueError("This settings export version is not supported.")
+
+        sections = {
+            "playback": self._playback,
+            "safety": self._safety,
+            "text_replacer": self._text_replacer,
+            "gag": self._gag,
+            "bambicloud": self._bambicloud,
+            "screenlock": self._screenlock,
+        }
+        for section_name, target in sections.items():
+            values = data.get(section_name, {})
+            if not isinstance(values, dict):
+                raise ValueError(f"Invalid {section_name} settings.")
+            allowed_keys = {field_info.name for field_info in fields(target)}
+            for key, value in values.items():
+                if key in allowed_keys:
+                    setattr(target, key, value)
+
+        tray_values = data.get("tray", {})
+        if isinstance(tray_values, dict) and "start_minimized" in tray_values:
+            self._tray.start_minimized = bool(tray_values["start_minimized"])
+
+        self._save_all()
+        self.playback_settings_changed.emit(self._playback)
+        self.safety_settings_changed.emit(self._safety)
+        self.text_replacer_settings_changed.emit(self._text_replacer)
+        self.gag_settings_changed.emit(self._gag)
+        self.all_settings_changed.emit()
+        return True
 
     def _load_all(self):
         saved_hash = self._qsettings.value("otp_hash", "")
@@ -252,8 +335,12 @@ class SettingsManager(QObject):
         self._playback.volume = self._qsettings.value("playback/volume", 256, type=int)
         self._playback.mute_other_audio = self._qsettings.value("playback/mute_other_audio", False, type=bool)
         self._playback.autostart_enabled = self._qsettings.value("playback/autostart_enabled", True, type=bool)
+        self._screenlock.enabled = self._qsettings.value("screenlock/enabled", False, type=bool)
 
         self._safety.max_video_length_enabled = self._qsettings.value("safety/max_video_length_enabled", False, type=bool)
+
+        # Tray settings
+        self._tray.start_minimized = self._qsettings.value("tray/start_minimized", False, type=bool)
         self._safety.max_video_length_minutes = self._qsettings.value("safety/max_video_length_minutes", 10, type=int)
         self._safety.max_video_length_action = self._qsettings.value("safety/max_video_length_action", "Block & Show Warning", type=str)
         self._safety.max_queue_duration_enabled = self._qsettings.value("safety/max_queue_duration_enabled", False, type=bool)
@@ -273,6 +360,12 @@ class SettingsManager(QObject):
         self._gag.enabled = self._qsettings.value("gag/enabled", False, type=bool)
         self._gag.remote_url = self._qsettings.value("gag/remote_url", "", type=str)
         self._gag.local_toggle = self._qsettings.value("gag/local_toggle", False, type=bool)
+        self._gag.target_programs = self._qsettings.value(
+            "gag/target_programs", self._gag.target_programs, type=list
+        )
+        self._gag.force_everywhere = self._qsettings.value(
+            "gag/force_everywhere", False, type=bool
+        )
 
         # Bambicloud settings
         self._bambicloud.enabled = self._qsettings.value("bambicloud/enabled", True, type=bool)
@@ -295,6 +388,8 @@ class SettingsManager(QObject):
         self._save_text_replacer()
         self._save_gag()
         self._save_bambicloud()
+        self._save_screenlock()
+        self._save_tray()
         self._qsettings.sync()
         logger.info("All settings saved")
 
@@ -326,6 +421,8 @@ class SettingsManager(QObject):
         self._qsettings.setValue("gag/enabled", self._gag.enabled)
         self._qsettings.setValue("gag/remote_url", self._gag.remote_url)
         self._qsettings.setValue("gag/local_toggle", self._gag.local_toggle)
+        self._qsettings.setValue("gag/target_programs", self._gag.target_programs)
+        self._qsettings.setValue("gag/force_everywhere", self._gag.force_everywhere)
 
     def _save_bambicloud(self):
         self._qsettings.setValue("bambicloud/enabled", self._bambicloud.enabled)
@@ -335,6 +432,22 @@ class SettingsManager(QObject):
         self._qsettings.setValue("bambicloud/custom_colors", self._bambicloud.custom_colors)
         self._qsettings.setValue("bambicloud/countdown_duration_seconds", self._bambicloud.countdown_duration)
         self._qsettings.setValue("bambicloud/countdown_enabled", self._bambicloud.countdown_enabled)
+
+    def _save_tray(self):
+        self._qsettings.setValue("tray/start_minimized", self._tray.start_minimized)
+
+    def update_screenlock(self, **kwargs) -> bool:
+        if self._check_locked():
+            return False
+        for key, value in kwargs.items():
+            if hasattr(self._screenlock, key):
+                setattr(self._screenlock, key, value)
+        self._save_screenlock()
+        self.all_settings_changed.emit()
+        return True
+
+    def _save_screenlock(self):
+        self._qsettings.setValue("screenlock/enabled", self._screenlock.enabled)
 
     def get_player_settings_dict(self) -> Dict[str, Any]:
         return {

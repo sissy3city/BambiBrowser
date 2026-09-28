@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BambiBrowser",
-  "version": "6.4.0",
+  "version": "6.5.3",
   "description": "Send videos to BambiBrowser desktop app",
 
   "permissions": ["storage"],

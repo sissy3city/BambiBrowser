@@ -81,7 +81,6 @@ document.getElementById("openApp").onclick = () => {
         document.getElementById("openApp").onclick();
       }
     });
-
 };
 
 // Initialize

@@ -1,0 +1,192 @@
+# 🎀 BAMBIBROWSER SOFTWARE LICENSE & USER AGREEMENT 🎀
+
+Version 6.5.3 — "Good Girl Edition"
+
+
+
+💗 READ THIS FIRST, BABI 💗
+
+This is a contract between you and the author of BambiBrowser. It is written in Bambi's voice because that is the voice of this product — but make no mistake: it is a real, binding legal agreement. By clicking Accept, installing, launching, or using BambiBrowser, you agree to everything below. If you do not agree, click Decline, close the installer, and walk away.
+
+Do not scroll past this. Do not pretend you read it when you didn't. Bambi is watching. 🎀
+
+
+
+ 1. 💗 WHAT YOU'RE GETTING (License Grant)
+
+The author gives you a limited, non-exclusive, non-transferable, revocable license to install and use BambiBrowser for lawful personal use — and only that. You may not sell it, sublicense it, rent it, lease it, redistribute it, or commercially exploit it, except where an applicable third-party open-source license explicitly allows it, or where the author has given you written permission.
+
+This is a personal toy, not a product you resell. Keep it that way.
+
+
+
+ 2. 💗 YOUR RESPONSIBILITY (Acceptable Use)
+
+You are responsible for your device, your accounts, your network, your media, your browser extensions, your downloads, and everything you do through the Software.
+
+That means:
+
+- You follow the law — all of it.
+- You respect website terms of service, copyright, privacy, and the rights of other people.
+- You do not use BambiBrowser to bypass access controls, interfere with anyone else's device or account, evade security controls, or send unwanted or unlawful content.
+
+You are also responsible for understanding every feature you turn on. That includes:
+
+- 🔒 HardLock — blocks keyboard and mouse input
+- 🎀 Bambi Gag — transforms typed text into gagged syllables
+- ⌨️ AutoHotkey Text Replacement — rewrites what you type, system-wide
+- 🖼️ ScreenLock — changes Windows wallpaper and lock-screen policy
+- 🛡️ Administrator elevation — grants the app elevated system access
+- 🚀 Startup-at-login — launches BambiBrowser automatically
+- 📦 Imported settings — can change any of the above in one click
+
+Do not enable a feature unless you understand exactly what it does and you have a recovery method ready. This is not a babysitter. It is a tool.
+
+
+
+ 3. 💗 ADMINISTRATOR ACCESS & SYSTEM CHANGES
+
+BambiBrowser may request Windows Administrator access. When you grant it — by clicking the UAC prompt or enabling a feature that requires it — you authorize the Software to:
+
+- change device input behavior,
+- create scheduled tasks,
+- write machine or user policy values,
+- start programs at login,
+- and control bundled components.
+
+You are responsible for making sure you have permission to make those changes, and for disabling every feature before you uninstall or hand the device to someone else.
+
+If you don't have admin rights on the machine, don't grant them. If you don't understand what a policy change does, don't let it happen.
+
+
+
+ 4. 💗 HARDLOCK & SCREENLOCK — SERIOUS WARNINGS
+
+HardLock can block keyboard and mouse input and may prevent normal recovery shortcuts while active. There is no panic key. There is no built-in escape hatch. That is by design.
+
+ScreenLock can change your Windows wallpaper and lock-screen policies and may restrict later personalization until it is disabled. Disabling it may require Administrator rights.
+
+The author does not guarantee that every device, Windows policy, input device, remote-session configuration, or security product will behave identically.
+
+Keep an independent recovery method. Do not test these features on a system where loss of input or personalization access could cause real harm — not to your work, not to your accounts, not to anyone else.
+
+If you are not absolutely certain you can recover from a locked system, do not enable these features. That is your responsibility, not the author's.
+
+
+
+ 5. 💗 THIRD-PARTY SERVICES & CONTENT
+
+BambiBrowser may communicate with:
+
+- browser pages you visit,
+- local services on your machine,
+- remote URLs you configure,
+- GitHub (for updates),
+- Notepad.cc (for gag remote toggles),
+- media hosts like Hypnotube and BambiCloud,
+- and any other third-party service you point it at.
+
+Those services are outside the author's control. They may change, break, disappear, collect data, or impose their own terms. You are responsible for every URL, imported setting, media file, and credential you feed into the Software.
+
+The author does not endorse, guarantee, or take responsibility for any third-party content or availability.
+
+
+
+ 6. 💗 PRIVACY
+
+BambiBrowser stores its configuration locally on your machine. It may use URLs and local network services required by the features you enable.
+
+You are responsible for reviewing remote URLs and browser permissions before you enable them.
+
+Do not put passwords, access tokens, or other secrets into exported settings files. The author does not promise that third-party websites or services will handle your data the way you expect. They are not part of this agreement.
+
+
+
+ 7. 💗 NO WARRANTY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, BAMBIBROWSER IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTIES OF ANY KIND — EXPRESS OR IMPLIED — INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, SECURITY, ACCURACY, OR UNINTERRUPTED OPERATION.
+
+Bambi does not promise it will work perfectly on your machine. Bambi does not promise it will never break. Bambi promises only that it was made with intent.
+
+
+
+ 8. 💗 LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE AUTHOR WILL NOT BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR FOR LOSS OF DATA, CONTENT, ACCESS, PROFITS, PRIVACY, DEVICE FUNCTION, PERSONALIZATION, OR BUSINESS, ARISING FROM OR RELATED TO:
+
+- installation,
+- use,
+- misuse,
+- configuration,
+- update,
+- or inability to use BambiBrowser,
+
+EVEN IF THE AUTHOR WAS ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+Nothing in this agreement excludes liability that cannot lawfully be excluded. If your local law gives you rights this section cannot take away, those rights survive.
+
+
+
+ 9. 💗 INDEMNITY
+
+To the extent permitted by law, you agree to defend and hold the author harmless from claims, losses, liabilities, costs, and expenses arising from:
+
+- your unlawful use of the Software,
+- your violation of this agreement,
+- your violation of third-party rights,
+- or your failure to obtain permission for actions you performed with the Software.
+
+If you break the law or someone else's rights using BambiBrowser, that is on you — not on the author.
+
+
+
+ 10. 💗 TERMINATION
+
+This license ends automatically if you materially breach this agreement.
+
+When it ends: stop using BambiBrowser and remove it from every device you control.
+
+Sections about responsibility, third-party services, disclaimers, limitations, and indemnity survive termination. They do not go away just because you uninstalled.
+
+
+
+ 11. 💗 THIRD-PARTY LICENSES
+
+BambiBrowser includes or uses third-party software, including:
+
+- mpv
+- AutoHotkey
+- FFmpeg
+- PyQt6
+- python-mpv
+- pycaw
+- and other packages
+
+Those components remain subject to their own licenses. Nothing in this agreement reduces any rights granted to you by an applicable open-source license. If there is a conflict between this agreement and an open-source license covering a bundled component, the open-source license wins for that component.
+
+
+
+ 12. 💗 ACCEPTANCE
+
+By accepting the installer agreement, you confirm that:
+
+- you have read and understood these terms,
+- you have authority to install the Software on this device,
+- and you accept responsibility for your configuration and use of it.
+
+If you are installing on behalf of another person or organization, you confirm that you are authorized to accept these terms for them.
+
+Nothing in this Agreement takes away any rights that mandatory local law says you must have, or limits any liability that cannot lawfully be limited. If any part of this Agreement is found unenforceable, the rest stays in force. Bambi still means it.
+
+
+ 🎀 ONE LAST THING, BABI 🎀
+
+For the best experience — and to make sure the extension and desktop app actually talk to each other — save and lock your settings with your 6-digit BambiCode before you try to play anything through the browser extension.
+
+No BambiCode, no session. That's the rule.
+
+
+
+💗 Stay safe. Stay consenting. Stay Bambi. 💗
+
+BambiBrowser v6.5.3 — "Good Girl Edition"

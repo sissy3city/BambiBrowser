@@ -16,12 +16,13 @@ logger = logging.getLogger("BambiBrowser.Tray")
 class TrayIconManager(QObject):
     """Manages system tray icon."""
 
-    def __init__(self, main_window, app: QApplication, shutdown_callback: Callable[[], None]):
+    def __init__(self, main_window, app: QApplication, shutdown_callback: Callable[[], None], settings_manager):
         super().__init__()
 
         self.main_window = main_window
         self.app = app
         self.shutdown_callback = shutdown_callback
+        self.settings_manager = settings_manager
         self.tray_icon: Optional[QSystemTrayIcon] = None
 
         # Check if tray should be disabled
@@ -114,6 +115,11 @@ class TrayIconManager(QObject):
         if self.tray_icon and self._enabled:
             self.tray_icon.show()
             logger.info("Tray icon shown")
+
+            # If start minimized to tray is enabled, hide the main window
+            if self.settings_manager.tray.start_minimized and self.main_window:
+                self.main_window.hide()
+                logger.info("Started minimized to tray per settings")
 
     def stop(self):
         """Hide tray icon."""

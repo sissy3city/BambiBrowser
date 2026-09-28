@@ -553,6 +553,7 @@ class UnifiedSettingsPanel(QWidget):
         self.tabs.addTab(self._create_playback_tab(), "🎬 Bambi Player")
         self.tabs.addTab(self._create_text_replacer_tab(), "📖 Bambi Dictionary")
         self.tabs.addTab(self._create_gag_tab(), "🔇 Bambi Gag")
+        self.tabs.addTab(self._create_screenlock_tab(), "🖼️ Bambi ScreenLock")
         main_layout.addWidget(self.tabs)
 
         self.lock_btn = QPushButton()
@@ -582,6 +583,15 @@ class UnifiedSettingsPanel(QWidget):
         self.autostart_status.setWordWrap(True)
         self._refresh_autostart_status()
         layout.addWidget(self.autostart_status)
+
+        # Tray startup setting
+        self.tray_start_row = ToggleRow(
+            "📥 Start minimized to tray",
+            "Launch BambiBrowser minimized to system tray instead of showing the main window"
+        )
+        self.tray_start_row.setChecked(self._manager.tray.start_minimized)
+        self.tray_start_row.toggled.connect(self._on_tray_start_toggled)
+        layout.addWidget(self.tray_start_row)
 
         self.diagnostics_btn = QPushButton("🔍 Run Diagnostics")
         self.diagnostics_btn.setToolTip(
@@ -624,6 +634,17 @@ class UnifiedSettingsPanel(QWidget):
         self.keyboard_check_btn.clicked.connect(self._on_keyboard_check_clicked)
         layout.addWidget(self.keyboard_check_btn)
 
+        settings_layout = QHBoxLayout()
+        self.export_settings_btn = QPushButton("📤 Export Settings")
+        self.export_settings_btn.setToolTip("Save your BambiBrowser settings to a shareable JSON file")
+        self.export_settings_btn.clicked.connect(self._export_settings)
+        settings_layout.addWidget(self.export_settings_btn)
+        self.import_settings_btn = QPushButton("📥 Import Settings")
+        self.import_settings_btn.setToolTip("Load settings from a BambiBrowser JSON export")
+        self.import_settings_btn.clicked.connect(self._import_settings)
+        settings_layout.addWidget(self.import_settings_btn)
+        layout.addLayout(settings_layout)
+
         layout.addStretch()
         widget.setLayout(layout)
         return widget
@@ -635,6 +656,76 @@ class UnifiedSettingsPanel(QWidget):
     def _on_keyboard_check_clicked(self):
         dialog = KeyboardCheckDialog(self._manager, self._text_replacer, self)
         dialog.exec()
+
+    def _export_settings(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export BambiBrowser Settings", "bambibrowser-settings.json", "JSON (*.json)"
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, "w", encoding="utf-8") as settings_file:
+                json.dump(self._manager.export_settings(), settings_file, indent=2)
+            QMessageBox.information(self, "Settings Exported", "BambiBrowser settings were exported successfully.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Failed", str(exc))
+
+    def _import_settings(self):
+        if self._manager.is_locked:
+            QMessageBox.warning(self, "Settings Locked", "Unlock settings before importing settings.")
+            return
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Import BambiBrowser Settings", "", "JSON (*.json)"
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, "r", encoding="utf-8") as settings_file:
+                imported = json.load(settings_file)
+            reply = QMessageBox.question(
+                self,
+                "Import Settings",
+                "Import these settings and replace the current configuration?\n\n"
+                "You will set a new BambiCode after the import.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            new_otp_dialog = OTPDialog(mode="set", parent=self)
+            if new_otp_dialog.exec() != OTPDialog.DialogCode.Accepted:
+                QMessageBox.information(self, "Import Cancelled", "A new BambiCode is required to import settings.")
+                return
+            new_otp = new_otp_dialog.get_otp()
+
+            self._manager.import_settings(imported)
+            self._sync_imported_services()
+            self._manager.lock_with_otp(new_otp)
+            self._load_from_manager()
+            QMessageBox.information(self, "Settings Imported", "BambiBrowser settings were imported successfully.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Import Failed", str(exc))
+
+    def _sync_imported_services(self):
+        from core.autostart import disable as disable_autostart, enable as enable_autostart
+        from core.screenlock import disable as disable_screenlock, enable as enable_screenlock
+
+        autostart_ok, autostart_message = (
+            enable_autostart() if self._manager.playback.autostart_enabled else disable_autostart()
+        )
+        if not autostart_ok:
+            self.autostart_row.setChecked(not self._manager.playback.autostart_enabled)
+            QMessageBox.warning(self, "Autostart", autostart_message)
+        else:
+            self.autostart_row.setChecked(self._manager.playback.autostart_enabled)
+
+        screenlock_ok, screenlock_message = (
+            enable_screenlock() if self._manager.screenlock.enabled else disable_screenlock()
+        )
+        if not screenlock_ok:
+            self._manager.update_screenlock(enabled=False)
+            self.screenlock_row.setChecked(False)
+            QMessageBox.warning(self, "Bambi ScreenLock", screenlock_message)
 
     def _on_run_diagnostics_clicked(self):
         self.diagnostics_btn.setEnabled(False)
@@ -684,6 +775,9 @@ class UnifiedSettingsPanel(QWidget):
             self.autostart_row.toggle.toggled.connect(self._on_autostart_toggled)
 
         self._refresh_autostart_status()
+
+    def _on_tray_start_toggled(self, checked: bool):
+        self._manager.update_tray(start_minimized=checked)
 
     def _refresh_autostart_status(self):
         from core.autostart import is_enabled as autostart_is_enabled
@@ -821,6 +915,37 @@ class UnifiedSettingsPanel(QWidget):
         widget.setLayout(layout)
         return widget
 
+    def _create_screenlock_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(12)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        intro = QLabel(
+            "Bambi ScreenLock keeps the Windows lock-screen image synchronized "
+            "with your desktop wallpaper at login and whenever it changes."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("font-size: 12px; color: #cfcfe6; padding-bottom: 6px;")
+        layout.addWidget(intro)
+
+        self.screenlock_row = ToggleRow(
+            "🖼️ Enable Bambi ScreenLock",
+            "Requires Administrator rights. A Windows scheduled task runs at login and "
+            "checks the wallpaper every few seconds."
+        )
+        self.screenlock_row.setChecked(False)
+        self.screenlock_row.toggled.connect(self._on_screenlock_toggled)
+        layout.addWidget(self.screenlock_row)
+
+        self.screenlock_status = QLabel()
+        self.screenlock_status.setWordWrap(True)
+        self.screenlock_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
+        layout.addWidget(self.screenlock_status)
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
+
     def _create_text_replacer_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout()
@@ -902,6 +1027,8 @@ class UnifiedSettingsPanel(QWidget):
         return widget
 
     def _create_gag_tab(self) -> QWidget:
+        from core.gag_manager import GAG_PROGRAMS
+
         widget = QWidget()
         layout = QVBoxLayout()
         layout.setSpacing(10)
@@ -930,6 +1057,31 @@ class UnifiedSettingsPanel(QWidget):
         self.gag_local_row = ToggleRow("🔘 Force Gag ON (Local)", "Overrides remote when no remote URL is set")
         self.gag_local_row.toggled.connect(self._on_gag_local_toggled)
         layout.addWidget(self.gag_local_row)
+
+        targets_group = QGroupBox("🎯 Gag target programs")
+        targets_layout = QVBoxLayout()
+        targets_hint = QLabel(
+            "Press Enter in a selected program to transform the message before it is sent. "
+            "Discord variants are listed separately; web Messenger uses Chrome or Edge."
+        )
+        targets_hint.setWordWrap(True)
+        targets_hint.setStyleSheet("font-size: 10px; color: #888;")
+        targets_layout.addWidget(targets_hint)
+        self.gag_program_checks = {}
+        for key, (label, _executable) in GAG_PROGRAMS.items():
+            check = QCheckBox(label)
+            check.setProperty("gag_program_key", key)
+            check.toggled.connect(self._on_gag_targets_changed)
+            self.gag_program_checks[key] = check
+            targets_layout.addWidget(check)
+        self.gag_force_everywhere = QCheckBox("⚠️ Force gag in every window")
+        self.gag_force_everywhere.setToolTip(
+            "Applies the gag to the active window regardless of its program."
+        )
+        self.gag_force_everywhere.toggled.connect(self._on_gag_force_everywhere_toggled)
+        targets_layout.addWidget(self.gag_force_everywhere)
+        targets_group.setLayout(targets_layout)
+        layout.addWidget(targets_group)
 
         # Status indicator
         self.gag_status_label = QLabel("Gag is: OFF")
@@ -1101,6 +1253,38 @@ class UnifiedSettingsPanel(QWidget):
         self._manager.update_bambicloud(countdown_duration=value)
         self.settings_changed.emit()
 
+    # ---------- ScreenLock signal handlers ----------
+    def _on_screenlock_toggled(self, checked: bool):
+        if self._manager.is_locked:
+            return
+        from core.screenlock import disable as disable_screenlock, enable as enable_screenlock
+
+        ok, message = enable_screenlock() if checked else disable_screenlock()
+        if not ok:
+            QMessageBox.warning(self, "Bambi ScreenLock", message)
+            self.screenlock_row.toggle.toggled.disconnect(self._on_screenlock_toggled)
+            self.screenlock_row.setChecked(not checked)
+            self.screenlock_row.toggle.toggled.connect(self._on_screenlock_toggled)
+            self._refresh_screenlock_status()
+            return
+
+        self._manager.update_screenlock(enabled=checked)
+        self._refresh_screenlock_status(message)
+
+    def _refresh_screenlock_status(self, message: str = ""):
+        from core.screenlock import is_enabled, is_supported
+        if not is_supported():
+            self.screenlock_status.setText("⏹ Available on Windows only.")
+            self.screenlock_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
+        elif is_enabled():
+            self.screenlock_status.setText("✅ Enabled — wallpaper synchronization is active at login.")
+            self.screenlock_status.setStyleSheet("font-size: 11px; color: #7dff9a; padding: 4px 2px;")
+        else:
+            self.screenlock_status.setText("⏹ Disabled — Windows lock-screen policy is not managed by BambiBrowser.")
+            self.screenlock_status.setStyleSheet("font-size: 11px; color: #888; padding: 4px 2px;")
+        if message:
+            self.screenlock_status.setToolTip(message)
+
     # ---------- Gag signal handlers ----------
     def _on_gag_master_toggled(self, checked: bool):
         if self._manager.is_locked:
@@ -1128,6 +1312,23 @@ class UnifiedSettingsPanel(QWidget):
         if self.gag_manager:
             self.gag_manager.reload()
 
+    def _on_gag_targets_changed(self, _checked: bool):
+        if self._manager.is_locked:
+            return
+        selected = [key for key, check in self.gag_program_checks.items() if check.isChecked()]
+        self._manager.update_gag(target_programs=selected)
+        if self.gag_manager and self.gag_manager.is_enabled:
+            self.gag_manager.reload()
+
+    def _on_gag_force_everywhere_toggled(self, checked: bool):
+        if self._manager.is_locked:
+            return
+        self._manager.update_gag(force_everywhere=checked)
+        for check in self.gag_program_checks.values():
+            check.setEnabled(not checked)
+        if self.gag_manager and self.gag_manager.is_enabled:
+            self.gag_manager.reload()
+
     def _on_gag_status_changed(self, on: bool):
         self.gag_status_label.setText(f"Gag is: {'ON' if on else 'OFF'}")
         self.gag_status_label.setStyleSheet(
@@ -1149,6 +1350,7 @@ class UnifiedSettingsPanel(QWidget):
     def _load_from_manager(self):
         p = self._manager.playback
         self.hardlock_row.setChecked(p.input_lock)
+        self.tray_start_row.setChecked(self._manager.tray.start_minimized)
         self.clickthrough_row.setChecked(p.click_through)
         self.opacity_slider.setValue(p.opacity)
         self.opacity_widget.setVisible(p.click_through)
@@ -1181,6 +1383,11 @@ class UnifiedSettingsPanel(QWidget):
         self.gag_remote_input.setText(g.remote_url)
         self.gag_local_row.setChecked(g.local_toggle)
         self.gag_local_row.setEnabled(not bool(g.remote_url.strip()))
+        for key, check in self.gag_program_checks.items():
+            check.setChecked(key in g.target_programs)
+        self.gag_force_everywhere.setChecked(g.force_everywhere)
+        for check in self.gag_program_checks.values():
+            check.setEnabled(not g.force_everywhere)
         # Update status label if gag_manager is running
         if self.gag_manager and self.gag_manager.is_running:
             self._on_gag_status_changed(self.gag_manager.current_state)
@@ -1196,6 +1403,9 @@ class UnifiedSettingsPanel(QWidget):
         self.bambicloud_custom_file_label.setText(bc.custom_animation_path or "No custom animation selected")
         self.bambicloud_countdown_duration_slider.setValue(bc.countdown_duration)
         self._update_bambicloud_visibility()
+
+        self.screenlock_row.setChecked(self._manager.screenlock.enabled)
+        self._refresh_screenlock_status()
 
         # Apply lock state immediately after loading
         self._on_lock_state_changed(self._manager.is_locked)
@@ -1533,6 +1743,14 @@ class UnifiedSettingsPanel(QWidget):
         self.gag_enabled_row.setEnabled(enabled)
         self.gag_remote_input.setEnabled(enabled)
         self.gag_local_row.setEnabled(enabled and not bool(self.gag_remote_input.text().strip()))
+        self.gag_force_everywhere.setEnabled(enabled)
+        for check in self.gag_program_checks.values():
+            check.setEnabled(enabled and not self.gag_force_everywhere.isChecked())
+        self.screenlock_row.setEnabled(enabled)
+        self.autostart_row.setEnabled(enabled)
+        self.tray_start_row.setEnabled(enabled)
+        self.export_settings_btn.setEnabled(True)
+        self.import_settings_btn.setEnabled(enabled)
 
     def _update_lock_ui(self):
         if self._manager.is_locked:

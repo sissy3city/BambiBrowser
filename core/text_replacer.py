@@ -191,6 +191,17 @@ class TextReplacer(QObject):
             "our": "Bambi's", "ours": "Bambi's", "weve": "Bambi and friends have",
             "were": "Bambi and friends are", "well": "Bambi and friends will",
             "am": "is", "us": "Bambi",
+            # Contractions - longer matches take precedence in AHK
+            "i'm": "Bambi is", "i've": "Bambi has", "i'll": "Bambi will",
+            "i'd": "Bambi would", "isn't": "Bambi is not", "aren't": "Bambi are not",
+            "wasn't": "Bambi was not", "weren't": "Bambi were not",
+            "don't": "Bambi do not", "doesn't": "Bambi does not", "didn't": "Bambi did not",
+            "can't": "Bambi cannot", "couldn't": "Bambi could not", "shouldn't": "Bambi should not",
+            "wouldn't": "Bambi would not", "mustn't": "Bambi must not",
+            "let's": "Bambi let us", "that's": "Bambi is", "there's": "Bambi is",
+            "here's": "Bambi is", "where's": "Bambi is", "who's": "Bambi is",
+            "what's": "Bambi is", "how's": "Bambi is", "it's": "Bambi is",
+            "won't": "Bambi will not", "ain't": "Bambi is not",
         }
         self._replacement_rules = defaults.copy()
         logger.info(f"Loaded {len(self._replacement_rules)} default rules")

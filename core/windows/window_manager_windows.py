@@ -53,9 +53,37 @@ def apply_window_properties(pid: int, opacity: int = 100, click_through: bool = 
         if click_through:
             win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE,
                                     style | win32con.WS_EX_TRANSPARENT | win32con.WS_EX_LAYERED)
+        style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+        style = (style | win32con.WS_EX_TOOLWINDOW) & ~win32con.WS_EX_APPWINDOW
+        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
         win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
-                               win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE)
+                               win32con.SWP_NOMOVE | win32con.SWP_NOSIZE |
+                               win32con.SWP_NOACTIVATE | win32con.SWP_FRAMECHANGED)
         return True
     except Exception as e:
         logger.debug(f"Window properties error: {e}")
+        return False
+
+
+def keep_window_topmost(pid: int, class_name: str = "mpv") -> bool:
+    """Reassert topmost for an existing player window without changing other styles."""
+    if not AVAILABLE:
+        return False
+    try:
+        hwnd = find_window_by_pid(pid, class_name)
+        if not hwnd:
+            return False
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            win32con.SWP_NOMOVE | win32con.SWP_NOSIZE |
+            win32con.SWP_NOACTIVATE | win32con.SWP_NOSENDCHANGING,
+        )
+        return True
+    except Exception as e:
+        logger.debug(f"Topmost refresh error: {e}")
         return False

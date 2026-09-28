@@ -62,7 +62,8 @@ class AHKManager:
         temp_dir = Path(tempfile.gettempdir()) / "BambiBrowser"
         temp_dir.mkdir(exist_ok=True)
         self._script_path = temp_dir / script_name
-        self._script_path.write_text(script_content, encoding="utf-8")
+        # Write UTF-8 with BOM for better encoding detection in some applications
+        self._script_path.write_text('﻿' + script_content, encoding="utf-8")
 
         try:
             creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -128,20 +129,13 @@ class AHKManager:
 
     # ---------- Internal ----------
     def _find_or_download_ahk(self) -> None:
-        """Locate AHK executable; if missing, download it."""
+        """Locate AHK executable; downloading is handled by the installer."""
         self._ahk_exe = self._find_ahk()
         if self._ahk_exe:
             logger.info(f"Using AutoHotkey: {self._ahk_exe}")
             return
 
-        logger.info("AutoHotkey not found - attempting to download...")
-        if self._download_ahk():
-            self._ahk_exe = self._find_ahk()
-            if self._ahk_exe:
-                logger.info(f"AutoHotkey installed at: {self._ahk_exe}")
-                return
-
-        logger.error("Could not obtain AutoHotkey. Please install manually.")
+        logger.error("AutoHotkey not found. Please ensure the 'ahk' folder contains AutoHotkey.exe or install AutoHotkey manually.")
 
     def _find_ahk(self) -> Optional[str]:
         """Search bundled ahk/ folder first, then system installs, then PATH."""
@@ -174,42 +168,7 @@ class AHKManager:
             return ahk_in_path
         return None
 
-    def _download_ahk(self) -> bool:
-        """Download and extract AutoHotkey to the bundled ahk/ folder."""
-        ahk_dir = Path(get_base_dir()) / "ahk"
-        ahk_dir.mkdir(parents=True, exist_ok=True)
-        zip_path = ahk_dir / "ahk-u64.zip"
-
-        try:
-            logger.info(f"Downloading AutoHotkey from {AHK_DOWNLOAD_URL}...")
-            urllib.request.urlretrieve(AHK_DOWNLOAD_URL, str(zip_path))
-        except Exception as e:
-            logger.error(f"Download failed: {e}")
-            return False
-
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(ahk_dir)
-            zip_path.unlink()
-
-            # Move files out of a possible subfolder into the root ahk/ dir.
-            for item in ahk_dir.iterdir():
-                if item.is_dir() and item.name.lower() in ("autohotkey", "ahk"):
-                    for sub in item.iterdir():
-                        target = ahk_dir / sub.name
-                        if not target.exists():
-                            shutil.move(str(sub), str(target))
-                    shutil.rmtree(item)
-
-            if any(ahk_dir.glob("AutoHotkey*.exe")):
-                logger.info("AutoHotkey installed successfully!")
-                return True
-            logger.error("No AutoHotkey executable found after extraction")
-            return False
-        except Exception as e:
-            logger.error(f"Extraction failed: {e}")
-            return False
-
+    
     def _generate_replacement_script(self, rules: Dict[str, str], use_prefix: bool, prefix_char: str) -> str:
         """Generate the AHK text-replacement script content."""
         script_lines = [

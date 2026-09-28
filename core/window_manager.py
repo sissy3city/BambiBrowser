@@ -16,3 +16,11 @@ def apply_window_properties(pid: int, opacity: int = 100, click_through: bool = 
     else:
         from core.linux.window_manager_linux import apply_window_properties as impl
     return impl(pid, opacity, click_through, class_name)
+
+
+def keep_window_topmost(pid: int, class_name: str = "mpv") -> bool:
+    """Reassert the player window's topmost state when supported."""
+    if sys.platform != "win32":
+        return False
+    from core.windows.window_manager_windows import keep_window_topmost as impl
+    return impl(pid, class_name)

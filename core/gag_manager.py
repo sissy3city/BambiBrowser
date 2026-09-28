@@ -10,6 +10,16 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 logger = logging.getLogger("BambiBrowser.GagManager")
 
+GAG_PROGRAMS = {
+    "discord": ("Discord", "Discord.exe"),
+    "discord_ptb": ("Discord PTB", "DiscordPTB.exe"),
+    "discord_canary": ("Discord Canary", "DiscordCanary.exe"),
+    "chrome": ("Google Chrome", "chrome.exe"),
+    "edge": ("Microsoft Edge", "msedge.exe"),
+    "whatsapp": ("WhatsApp", "WhatsApp.exe"),
+    "messenger": ("Messenger", "Messenger.exe"),
+}
+
 
 class GagManager(QObject):
     status_changed = pyqtSignal(bool)
@@ -152,13 +162,24 @@ class GagManager(QObject):
             enabled = False
             remote_url = ""
             local_toggle = False
+            target_programs = ["discord", "discord_ptb", "discord_canary", "chrome"]
+            force_everywhere = False
         return Dummy()
 
     def _generate_script(self, settings) -> str:
         remote_url = settings.remote_url.strip() if settings.remote_url else ""
         local_toggle = settings.local_toggle if hasattr(settings, 'local_toggle') else False
+        target_programs = getattr(settings, "target_programs", ["discord"])
+        force_everywhere = bool(getattr(settings, "force_everywhere", False))
+        target_executables = [
+            GAG_PROGRAMS[key][1]
+            for key in target_programs
+            if key in GAG_PROGRAMS
+        ]
+        target_list = ",".join(target_executables)
         use_remote = bool(remote_url)
         local_toggle_str = "true" if local_toggle else "false"
+        force_everywhere_str = "true" if force_everywhere else "false"
 
         script = f"""; ============================================================
 ;  BAMBI GAG – Auto‑generated script (NO TRAY ICON)
@@ -170,6 +191,8 @@ global gagEnabled := false
 global lastState := false
 global useRemote := {str(use_remote).lower()}
 global remoteUrl := "{remote_url}"
+global targetPrograms := "{target_list}"
+global forceEverywhere := {force_everywhere_str}
 global statusFile := A_Temp . "\\BambiBrowser\\gag_status.txt"
 global stateFile := A_Temp . "\\BambiBrowser\\gag_state.txt"
 
@@ -253,7 +276,7 @@ UpdateTray() {{
 ExitScript:
     ExitApp
 
-#IfWinActive ahk_exe Discord.exe
+#If IsGagTargetWindow()
 Enter::
     if (!gagEnabled) {{
         SendInput {{Enter}}
@@ -278,7 +301,21 @@ Enter::
     Sleep 120
     SendInput {{Enter}}
 return
-#IfWinActive
+#If
+
+IsGagTargetWindow() {{
+    global forceEverywhere, targetPrograms
+    if (forceEverywhere)
+        return true
+    WinGet, processName, ProcessName, A
+    StringLower, processName, processName
+    Loop, Parse, targetPrograms, `,
+    {{
+        if (processName = A_LoopField)
+            return true
+    }}
+    return false
+}}
 
 GagTransform(str) {{
     out := ""

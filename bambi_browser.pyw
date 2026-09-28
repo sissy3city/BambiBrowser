@@ -14,6 +14,7 @@ import threading
 import traceback
 import atexit
 import time
+import tempfile
 import subprocess
 import winreg
 from pathlib import Path
@@ -93,13 +94,17 @@ def request_admin_privileges():
         )
         if reply == QMessageBox.StandardButton.No:
             return False
-        script = sys.argv[0]
-        params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
+        if getattr(sys, "frozen", False):
+            executable = sys.executable
+            params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
+        else:
+            executable = sys.executable
+            script = sys.argv[0]
+            params = ' '.join([f'"{script}"'] + [f'"{arg}"' for arg in sys.argv[1:]])
         os.environ["BAMBI_ELEVATED"] = "1"
         ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", sys.executable,
-            f'"{script}" {params}',
-            os.path.dirname(script), 1
+            None, "runas", executable, params,
+            os.path.dirname(executable), 1
         )
         sys.exit(0)
     except Exception as e:
@@ -114,11 +119,11 @@ def check_and_request_admin():
 
 
 def kill_old_instance(base_dir):
-    pid_file = os.path.join(base_dir, "bambibrowser.pid")
+    pid_file = Path(tempfile.gettempdir()) / "bambibrowser.pid"
     current_pid = os.getpid()
-    if os.path.exists(pid_file):
+    if pid_file.exists():
         try:
-            old_pid = int(Path(pid_file).read_text().strip())
+            old_pid = int(pid_file.read_text().strip())
             if old_pid != current_pid:
                 if sys.platform == "win32":
                     subprocess.run(["taskkill", "/PID", str(old_pid), "/T", "/F"],
@@ -128,14 +133,14 @@ def kill_old_instance(base_dir):
                 time.sleep(1)
         except:
             pass
-    Path(pid_file).write_text(str(current_pid))
+    pid_file.write_text(str(current_pid))
 
     def cleanup():
         try:
-            if os.path.exists(pid_file):
-                saved_pid = Path(pid_file).read_text().strip()
+            if pid_file.exists():
+                saved_pid = pid_file.read_text().strip()
                 if saved_pid == str(current_pid):
-                    os.remove(pid_file)
+                    pid_file.unlink()
         except:
             pass
     atexit.register(cleanup)
@@ -178,54 +183,40 @@ def create_version_file(base_dir, logger):
     if not version_file.exists():
         try:
             with open(version_file, 'w', encoding='utf-8') as f:
-                f.write("6.5.0")   # <-- Updated to 6.5.0
-            logger.info("Created VERSION file with 6.5.0")
+                f.write("6.5.3")
+            logger.info("Created VERSION file with 6.5.3")
         except Exception as e:
             logger.warning(f"Could not create VERSION file: {e}")
 
 
 def set_autostart(enable=True):
-    """Set or remove BambiBrowser from Windows startup."""
+    """Set or remove BambiBrowser from Windows startup using Task Scheduler."""
     try:
-        # Determine the executable path
-        if getattr(sys, 'frozen', False):
-            # Running as bundled executable
-            app_path = sys.executable
-        else:
-            # Running as script
-            app_path = f'"{sys.executable}" "{os.path.abspath(__file__)}"'
-
-        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-        key_name = "BambiBrowser"
-
-        # Open the key
+        from core.autostart import enable as _enable, disable as _disable
+        # Ensure no registry Run entry exists to avoid duplicate launch
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE)
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                                0, winreg.KEY_SET_VALUE)
+            winreg.DeleteValue(key, "BambiBrowser")
+            winreg.CloseKey(key)
         except FileNotFoundError:
-            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+            pass  # Already not present
+        except Exception as e:
+            logging.debug(f"Could not remove registry autostart entry: {e}")
 
         if enable:
-            # Check current value
-            try:
-                current_value, _ = winreg.QueryValueEx(key, key_name)
-                if current_value == app_path:
-                    winreg.CloseKey(key)
-                    return  # Already set correctly
-            except FileNotFoundError:
-                pass  # Value doesn't exist, we'll set it
-
-            # Set the value
-            winreg.SetValueEx(key, key_name, 0, winreg.REG_SZ, app_path)
-            logging.info(f"Set autostart: {app_path}")
+            success, msg = _enable()
+            if success:
+                logging.info(f"Autostart enabled: {msg}")
+            else:
+                logging.warning(f"Failed to enable autostart: {msg}")
         else:
-            # Remove the value
-            try:
-                winreg.DeleteValue(key, key_name)
-                logging.info("Removed autostart")
-            except FileNotFoundError:
-                pass  # Already removed
-
-        winreg.CloseKey(key)
+            success, msg = _disable()
+            if success:
+                logging.info("Autostart disabled")
+            else:
+                logging.warning(f"Failed to disable autostart: {msg}")
     except Exception as e:
         logging.warning(f"Failed to set autostart: {e}")
 
@@ -247,7 +238,7 @@ class BambiBrowserApp:
         )
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("BambiBrowser")
-        self.app.setApplicationVersion("6.5.0")   # <-- Updated to 6.5.0
+        self.app.setApplicationVersion("6.5.3")
         self.app.setQuitOnLastWindowClosed(False)
 
         # Import core modules
@@ -272,6 +263,17 @@ class BambiBrowserApp:
 
         self.logger.info("Initializing Settings Manager...")
         self.settings_manager = SettingsManager()
+
+        if sys.platform == "win32" and self.settings_manager.screenlock.enabled:
+            try:
+                from core.screenlock import enable as enable_screenlock
+                ok, message = enable_screenlock()
+                if ok:
+                    self.logger.info("ScreenLock task synchronized on startup")
+                else:
+                    self.logger.warning(f"ScreenLock startup repair failed: {message}")
+            except Exception as exc:
+                self.logger.warning(f"ScreenLock startup repair error: {exc}")
 
         self.logger.info("Initializing VideoPlayer...")
         self.player = VideoPlayer(self.hard_lock)
@@ -308,9 +310,9 @@ class BambiBrowserApp:
         self.updater.update_available.connect(self._on_update_available)
         self.updater.error_occurred.connect(self._on_update_error)
 
-        # Tray – pass shutdown callback
+        # Tray – pass shutdown callback and settings manager
         self.logger.info("Setting up system tray...")
-        self.tray = TrayIconManager(self.main_window, self.app, self.shutdown)
+        self.tray = TrayIconManager(self.main_window, self.app, self.shutdown, self.settings_manager)
 
         # Signals
         self.player.status_changed.connect(self._on_player_status_changed)

@@ -1,4 +1,10 @@
-# 💖 BambiBrowser 💖
+# BambiBrowser - Media Browser and Player Application
+
+## License Agreement
+
+The installer presents the full [BambiBrowser Software License and User Agreement](LICENSE.txt). It covers consent, administrator access, HardLock and ScreenLock risks, user responsibility, third-party services, and warranty and liability limits. Read and accept that agreement before installing or using BambiBrowser.
+
+## 💖 BambiBrowser 💖
 
 OMG, like, literally THE cutest Python-based media browser and player application with the most adorable browser extension support ever! We're talking **mpv** playback, **AutoHotkey** text replacement and gagging, **HardLock** input blocking, **FFmpeg** duration detection, and a super secure **OTP‑locked settings** panel – basically everything you could ever want and MORE! 🎉
 
@@ -70,8 +76,7 @@ BambiBrowser/
 │   ├── update_dialog.py      # Update notification & progress
 │   └── styles.py             # Dark theme QSS
 ├── extension/                # Browser extension (Chrome & Firefox)
-│   ├── manifest.json         # Chrome manifest (v3)
-│   ├── manifest.firefox.json # Firefox manifest (v3, rename to use)
+│   ├── manifest.json         # Chrome manifest (v3) / Firefox manifest (v2)
 │   ├── background.js         # Service worker / background script
 │   ├── content.js            # Main content script (video detection & fallback)
 │   ├── popup.html            # Extension popup UI
@@ -151,7 +156,7 @@ sudo usermod -aG input $USER
    - **Firefox**:  
      - Open `about:debugging#/runtime/this-firefox`  
      - Click **Load Temporary Add‑on**  
-     - Select any file inside the `extension/` folder (or rename `manifest.firefox.json` to `manifest.json` and load the folder).  
+     - Select any file inside the `extension/` folder.  
 
 5. **Run the application**  
    ```bash
@@ -304,4 +309,3 @@ Have a question? Found a bug? Want to request a new site detector?
 ---
 
 *P.S. – If you’re reading this, you’re already part of the fam. Welcome, bestie! 👯‍♀️💖*
-# Test modification to verify write access works

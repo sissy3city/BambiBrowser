@@ -26,7 +26,7 @@ except ImportError:
 
 from core.hard_lock import HardLock
 from core.audio_muter import mute_other_applications, unmute_all_applications, is_audio_muting_available
-from core.window_manager import apply_window_properties
+from core.window_manager import apply_window_properties, keep_window_topmost
 
 logger = logging.getLogger("BambiBrowser.Player")
 
@@ -160,6 +160,7 @@ class MPVProcess(QObject):
         self._process: Optional[subprocess.Popen] = None
         self._is_playing = False
         self._mpv_path = get_mpv_path()
+        self._topmost_refresh_active = False
 
         if not self._mpv_path:
             logger.error(f"mpv not found for screen {screen_index}")
@@ -238,8 +239,11 @@ class MPVProcess(QObject):
             self._is_playing = True
             logger.info(f"Screen {self.screen_index}: mpv started (PID {self._process.pid})")
 
-            if self.settings.get('click_through') or self.settings.get('opacity', 100) < 100:
+            if sys.platform == "win32" or self.settings.get('click_through') or self.settings.get('opacity', 100) < 100:
                 QTimer.singleShot(800, self._apply_window_properties)
+            if sys.platform == "win32":
+                self._topmost_refresh_active = True
+                QTimer.singleShot(100, self._refresh_topmost)
 
             QTimer.singleShot(500, self._check_process)
             return True
@@ -253,6 +257,7 @@ class MPVProcess(QObject):
             return
         if self._process.poll() is not None:
             self._is_playing = False
+            self._topmost_refresh_active = False
             self.process_ended.emit(self.screen_index)
         else:
             QTimer.singleShot(500, self._check_process)
@@ -266,7 +271,15 @@ class MPVProcess(QObject):
         if not applied and self.is_playing:
             QTimer.singleShot(500, self._apply_window_properties)
 
+    def _refresh_topmost(self):
+        if not self._topmost_refresh_active or not self.is_playing:
+            self._topmost_refresh_active = False
+            return
+        keep_window_topmost(self._process.pid)
+        QTimer.singleShot(100, self._refresh_topmost)
+
     def stop(self):
+        self._topmost_refresh_active = False
         if self._process and self._process.poll() is None:
             self._process.terminate()
             try:
@@ -299,6 +312,9 @@ class SeamlessPlaybackManager(QObject):
         self._input_lock_enabled = settings.get("input_lock", True)
         self._mute_other_audio = settings.get("mute_other_audio", False)
         self._audio_muted = False
+        self._audio_refresh_timer = QTimer(self)
+        self._audio_refresh_timer.setInterval(500)
+        self._audio_refresh_timer.timeout.connect(self._refresh_muted_sessions)
 
     def start_playback(self, url: str, monitors: List[int]) -> bool:
         if not monitors:
@@ -332,6 +348,7 @@ class SeamlessPlaybackManager(QObject):
             ]
             if mute_other_applications(keep_pids=mpv_pids):
                 self._audio_muted = True
+                self._audio_refresh_timer.start()
                 logger.info("System audio muted for other applications")
             else:
                 logger.warning("Failed to mute other applications")
@@ -362,6 +379,7 @@ class SeamlessPlaybackManager(QObject):
             self._lock_applied = False
 
     def _restore_audio(self):
+        self._audio_refresh_timer.stop()
         if self._audio_muted:
             if unmute_all_applications():
                 self._audio_muted = False
@@ -369,11 +387,24 @@ class SeamlessPlaybackManager(QObject):
             else:
                 logger.warning("Failed to restore audio")
 
+    def _refresh_muted_sessions(self):
+        if not self._audio_muted or not self._players:
+            self._audio_refresh_timer.stop()
+            return
+        mpv_pids = [
+            player._process.pid
+            for player in self._players.values()
+            if player._process is not None and player.is_playing
+        ]
+        if mpv_pids:
+            mute_other_applications(keep_pids=mpv_pids)
+
     def _on_error(self, msg: str):
         logger.error(f"MPV error: {msg}")
         self.error_occurred.emit(msg)
 
     def skip_all(self):
+        self._audio_refresh_timer.stop()
         for player in self._players.values():
             player.stop()
         self._players.clear()

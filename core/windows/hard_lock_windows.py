@@ -3,9 +3,8 @@ Windows HardLock implementation.
 
 Combines two lockdown mechanisms:
 - KeyboardDeviceDisabler: disables keyboard device nodes at the driver level
-  (CM_Disable_DevNode), which blocks all input from the hardware including the
-  Secure Attention Sequence (Ctrl+Alt+Del), since the kernel never receives
-  events from a disabled device node. Requires Administrator.
+    (CM_Disable_DevNode), which blocks normal hardware keyboard input while
+    active. Windows reserves the Secure Attention Sequence (Ctrl+Alt+Del).
 - A WH_KEYBOARD_LL low-level hook that suppresses the Win key, Alt+Tab, and
   Ctrl+Esc, as a lighter-weight layer that works even without admin rights.
 Falls back to BlockInput, and then to the keyboard/mouse hook libraries, if
@@ -15,8 +14,9 @@ the above are unavailable.
 import atexit
 import ctypes
 import logging
+import threading
 import time
-from ctypes import wintypes, byref, sizeof, c_ulong, c_bool, POINTER, CFUNCTYPE, c_int
+from ctypes import wintypes, byref, sizeof, c_ulong, c_bool, POINTER, WINFUNCTYPE, c_int
 from typing import List
 
 logger = logging.getLogger("BambiBrowser.HardLock")
@@ -29,7 +29,6 @@ VK_TAB = 0x09
 VK_ESCAPE = 0x1B
 VK_CONTROL = 0x11
 VK_MENU = 0x12  # Alt
-VK_DELETE = 0x2E
 VK_F4 = 0x73
 
 
@@ -77,7 +76,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 class KeyboardDeviceDisabler:
-    """Disables every keyboard device node at the driver level via CM_Disable_DevNode."""
+    """Disables present keyboard device nodes via CM_Disable_DevNode."""
 
     _INVALID_HANDLE = ctypes.c_size_t(-1).value
 
@@ -204,11 +203,52 @@ class WindowsHardLock:
         self._kbd_disable_active = False
         self._low_level_hook = None
         self._hook_callback = None
+        self._hook_thread = None
+        self._hook_thread_id = 0
+        self._hook_ready = threading.Event()
+        self._hook_install_succeeded = False
         self._lock_start_time = 0.0
 
         self._kbd_disabler = KeyboardDeviceDisabler()
 
         try:
+            self._GetModuleHandle = kernel32.GetModuleHandleW
+            self._GetModuleHandle.argtypes = [wintypes.LPCWSTR]
+            self._GetModuleHandle.restype = wintypes.HMODULE
+            self._SetWindowsHookEx = user32.SetWindowsHookExW
+            self._SetWindowsHookEx.argtypes = [
+                ctypes.c_int, ctypes.c_void_p, wintypes.HINSTANCE, wintypes.DWORD,
+            ]
+            self._SetWindowsHookEx.restype = wintypes.HHOOK
+            self._UnhookWindowsHookEx = user32.UnhookWindowsHookEx
+            self._UnhookWindowsHookEx.argtypes = [wintypes.HHOOK]
+            self._UnhookWindowsHookEx.restype = wintypes.BOOL
+            self._CallNextHookEx = user32.CallNextHookEx
+            self._CallNextHookEx.argtypes = [wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM]
+            self._CallNextHookEx.restype = ctypes.c_ssize_t
+            self._GetAsyncKeyState = user32.GetAsyncKeyState
+            self._GetAsyncKeyState.argtypes = [ctypes.c_int]
+            self._GetAsyncKeyState.restype = ctypes.c_short
+            self._GetCurrentThreadId = kernel32.GetCurrentThreadId
+            self._GetCurrentThreadId.restype = wintypes.DWORD
+            self._GetMessage = user32.GetMessageW
+            self._GetMessage.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+            self._GetMessage.restype = ctypes.c_int
+            self._PeekMessage = user32.PeekMessageW
+            self._PeekMessage.argtypes = [
+                ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT,
+            ]
+            self._PeekMessage.restype = wintypes.BOOL
+            self._TranslateMessage = user32.TranslateMessage
+            self._TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
+            self._TranslateMessage.restype = wintypes.BOOL
+            self._DispatchMessage = user32.DispatchMessageW
+            self._DispatchMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
+            self._DispatchMessage.restype = wintypes.LRESULT if hasattr(wintypes, "LRESULT") else ctypes.c_ssize_t
+            self._PostThreadMessage = user32.PostThreadMessageW
+            self._PostThreadMessage.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            self._PostThreadMessage.restype = wintypes.BOOL
+
             self._BlockInput = user32.BlockInput
             self._BlockInput.argtypes = [c_bool]
             self._BlockInput.restype = c_bool
@@ -255,9 +295,9 @@ class WindowsHardLock:
             return
         self._locked = True
         self._lock_start_time = time.time()
-        logger.info("HardLock ENABLED - all input blocked (including Win key, Alt+Tab)")
+        logger.info("HardLock ENABLED - applying keyboard and mouse input filters")
 
-        # Disable keyboard at driver level first - this stops Ctrl+Alt+Del too.
+        # Disable keyboard devices when permitted; Windows reserves Ctrl+Alt+Del.
         if self._kbd_disabler.disable():
             self._kbd_disable_active = True
 
@@ -327,8 +367,23 @@ class WindowsHardLock:
 
     def _install_low_level_hook(self) -> None:
         """Install a low-level keyboard hook that suppresses Win key, Alt+Tab, Ctrl+Esc."""
-        if self._low_level_hook is not None:
+        if self._hook_thread is not None and self._hook_thread.is_alive():
             return
+
+        self._hook_ready.clear()
+        self._hook_install_succeeded = False
+        self._hook_thread = threading.Thread(
+            target=self._low_level_hook_loop,
+            name="BambiHardLockKeyboardHook",
+            daemon=True,
+        )
+        self._hook_thread.start()
+        if not self._hook_ready.wait(timeout=3) or not self._hook_install_succeeded:
+            logger.error("Low-level keyboard hook thread failed to install")
+            self._hook_thread = None
+
+    def _low_level_hook_loop(self) -> None:
+        self._hook_thread_id = self._GetCurrentThreadId()
 
         def low_level_handler(nCode, wParam, lParam):
             if nCode >= 0:
@@ -337,40 +392,51 @@ class WindowsHardLock:
 
                 if vk in (VK_LWIN, VK_RWIN):
                     return 1
-                if vk == VK_TAB and user32.GetAsyncKeyState(VK_MENU) & 0x8000:
+                if vk == VK_TAB and self._GetAsyncKeyState(VK_MENU) & 0x8000:
                     return 1
-                if vk == VK_ESCAPE and user32.GetAsyncKeyState(VK_CONTROL) & 0x8000:
+                if vk == VK_ESCAPE and self._GetAsyncKeyState(VK_CONTROL) & 0x8000:
                     return 1
                 # Suppress Alt+F4 (shutdown dialog)
-                if vk == VK_F4 and user32.GetAsyncKeyState(VK_MENU) & 0x8000:
+                if vk == VK_F4 and self._GetAsyncKeyState(VK_MENU) & 0x8000:
                     return 1
-                # Suppress Ctrl+Alt+Del (Windows security screen)
-                if vk == VK_DELETE:
-                    ctrl_down = user32.GetAsyncKeyState(VK_CONTROL) & 0x8000
-                    alt_down = user32.GetAsyncKeyState(VK_MENU) & 0x8000
-                    if ctrl_down and alt_down:
-                        return 1
+            return self._CallNextHookEx(None, nCode, wParam, lParam)
 
-            return user32.CallNextHookExW(None, nCode, wParam, lParam)
-
-        self._hook_callback = CFUNCTYPE(c_int, c_int, wintypes.WPARAM, wintypes.LPARAM)(low_level_handler)
-        self._low_level_hook = user32.SetWindowsHookExW(
-            WH_KEYBOARD_LL, self._hook_callback, kernel32.GetModuleHandleW(None), 0
+        self._hook_callback = WINFUNCTYPE(ctypes.c_ssize_t, c_int, wintypes.WPARAM, wintypes.LPARAM)(low_level_handler)
+        self._low_level_hook = self._SetWindowsHookEx(
+            WH_KEYBOARD_LL, self._hook_callback, self._GetModuleHandle(None), 0
         )
+        self._hook_install_succeeded = bool(self._low_level_hook)
+        message = wintypes.MSG()
+        self._PeekMessage(byref(message), None, 0, 0, 0)
+        self._hook_ready.set()
+        if not self._low_level_hook:
+            logger.error(f"SetWindowsHookExW failed: {ctypes.WinError(ctypes.get_last_error())}")
+            return
+
+        logger.info("Low-level keyboard hook installed on dedicated message thread")
+        while self._GetMessage(byref(message), None, 0, 0) > 0:
+            self._TranslateMessage(byref(message))
+            self._DispatchMessage(byref(message))
 
         if self._low_level_hook:
-            logger.info("Low-level keyboard hook installed (blocks Win, Alt+Tab, Ctrl+Esc, Alt+F4, Ctrl+Alt+Del)")
-        else:
-            logger.warning("Failed to install low-level keyboard hook")
+            self._UnhookWindowsHookEx(self._low_level_hook)
+        self._low_level_hook = None
+        self._hook_callback = None
+        self._hook_thread_id = 0
 
     def _uninstall_low_level_hook(self) -> None:
-        if self._low_level_hook:
-            try:
-                user32.UnhookWindowsHookEx(self._low_level_hook)
-            except Exception:
-                pass
-            self._low_level_hook = None
-            self._hook_callback = None
+        thread = self._hook_thread
+        if thread and thread.is_alive() and self._hook_thread_id:
+            self._PostThreadMessage(self._hook_thread_id, 0x0012, 0, 0)
+            thread.join(timeout=3)
+        if thread and thread.is_alive():
+            logger.error("Low-level keyboard hook thread did not stop cleanly")
+            return
+        self._hook_thread = None
+        self._low_level_hook = None
+        self._hook_callback = None
+        self._hook_thread_id = 0
+        if thread:
             logger.info("Low-level keyboard hook removed")
 
     def _apply_full_hooks(self) -> None:
@@ -404,6 +470,7 @@ class WindowsHardLock:
             "keyboard_available": self.keyboard_available,
             "mouse_available": self.mouse_available,
             "windows_api": self._windows_api_available,
-            "low_level_hook_installed": self._low_level_hook is not None,
+            "low_level_hook_installed": bool(self._low_level_hook),
+            "low_level_hook_thread_alive": bool(self._hook_thread and self._hook_thread.is_alive()),
             "lock_duration": time.time() - self._lock_start_time if self._locked else 0,
         }
