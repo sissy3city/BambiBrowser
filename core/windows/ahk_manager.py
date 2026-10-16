@@ -196,3 +196,37 @@ class AHKManager:
                 script_lines.append(f"::{original}::{escaped}")
         script_lines.extend(["", "Menu, Tray, Tip, BambiBrowser AHK Active", "TrayTip, BambiBrowser, Text replacement active!, 3, 1"])
         return "\n".join(script_lines)
+
+
+def cleanup_leftover_processes() -> None:
+    """Kill any leftover AutoHotkey processes from previous BambiBrowser instances.
+
+    A safety net run at startup and shutdown: if BambiBrowser crashed or was
+    killed without going through normal shutdown, its AHK child processes
+    (text replacement / Bambi Gag scripts) can be left running.
+    """
+    try:
+        # Find all AutoHotkey processes with command lines containing our script names
+        result = subprocess.run(
+            ["wmic", "process", "where", "name like 'AutoHotkey%'", "get", "processid,commandline", "/format:csv"],
+            capture_output=True, text=True, check=False
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().splitlines()
+            for line in lines[1:]:  # skip header
+                parts = line.split(',')
+                if len(parts) >= 2:
+                    # commandline might be in first column, pid in last
+                    cmd = parts[0].lower() if parts else ""
+                    pid = parts[-1].strip() if len(parts) > 1 else ""
+                    if "bambi_replacements.ahk" in cmd or "bambi_gag.ahk" in cmd:
+                        if pid and pid.isdigit():
+                            try:
+                                subprocess.run(["taskkill", "/F", "/PID", pid],
+                                               capture_output=True, check=False)
+                                logger.info(f"Killed leftover AHK process {pid}")
+                            except Exception:
+                                pass
+    except Exception:
+        # Silent fail
+        pass

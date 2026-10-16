@@ -5,7 +5,6 @@ Fullscreen video player with HardLock, OS‑level text replacement, and Bambi Ga
 Auto‑elevates to administrator for full HardLock functionality.
 """
 
-import ctypes
 import sys
 import os
 import signal
@@ -15,8 +14,6 @@ import traceback
 import atexit
 import time
 import tempfile
-import subprocess
-import winreg
 from pathlib import Path
 
 # Force Qt's X11 (XWayland) platform plugin instead of letting it pick
@@ -63,53 +60,9 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
 sys.excepthook = global_exception_handler
 
 
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
-
-
-def request_admin_privileges():
-    if is_admin():
-        return True
-    if sys.platform != "win32":
-        return False
-    if os.environ.get("BAMBI_ELEVATED") == "1":
-        return False
-    try:
-        from PyQt6.QtWidgets import QApplication, QMessageBox
-        temp_app = QApplication.instance() or QApplication(sys.argv)
-        reply = QMessageBox.question(
-            None,
-            "Administrator Rights Required",
-            "BambiBrowser needs Administrator rights for full HardLock functionality.\n\n"
-            "Without admin rights:\n"
-            "• HardLock will use fallback methods (less reliable)\n"
-            "• Text Replacer may not work in all applications\n"
-            "• Bambi Gag may have limited scope\n\n"
-            "Do you want to restart with Administrator privileges?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
-        )
-        if reply == QMessageBox.StandardButton.No:
-            return False
-        if getattr(sys, "frozen", False):
-            executable = sys.executable
-            params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
-        else:
-            executable = sys.executable
-            script = sys.argv[0]
-            params = ' '.join([f'"{script}"'] + [f'"{arg}"' for arg in sys.argv[1:]])
-        os.environ["BAMBI_ELEVATED"] = "1"
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", executable, params,
-            os.path.dirname(executable), 1
-        )
-        sys.exit(0)
-    except Exception as e:
-        print(f"Failed to request admin: {e}")
-        return False
+from core.elevation import is_admin, request_admin_privileges, remove_legacy_autostart_registry_entry
+from core.process_utils import kill_pid
+from core.process_cleanup import cleanup_leftover_processes
 
 
 # Add the missing wrapper function
@@ -125,11 +78,7 @@ def kill_old_instance(base_dir):
         try:
             old_pid = int(pid_file.read_text().strip())
             if old_pid != current_pid:
-                if sys.platform == "win32":
-                    subprocess.run(["taskkill", "/PID", str(old_pid), "/T", "/F"],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-                else:
-                    os.kill(old_pid, signal.SIGTERM)
+                kill_pid(old_pid)
                 time.sleep(1)
         except:
             pass
@@ -144,38 +93,6 @@ def kill_old_instance(base_dir):
         except:
             pass
     atexit.register(cleanup)
-
-
-def cleanup_leftover_ahk_scripts():
-    """Kill any leftover AHK processes from previous BambiBrowser instances."""
-    if sys.platform != "win32":
-        return
-    try:
-        # Find all AutoHotkey processes with command lines containing our script names
-        result = subprocess.run(
-            ["wmic", "process", "where", "name like 'AutoHotkey%'", "get", "processid,commandline", "/format:csv"],
-            capture_output=True, text=True, check=False
-        )
-        if result.returncode == 0:
-            lines = result.stdout.strip().splitlines()
-            for line in lines[1:]:  # skip header
-                parts = line.split(',')
-                if len(parts) >= 2:
-                    # commandline might be in first column, pid in last
-                    cmd = parts[0].lower() if parts else ""
-                    pid = parts[-1].strip() if len(parts) > 1 else ""
-                    if "bambi_replacements.ahk" in cmd or "bambi_gag.ahk" in cmd:
-                        if pid and pid.isdigit():
-                            try:
-                                subprocess.run(["taskkill", "/F", "/PID", pid],
-                                               capture_output=True, check=False)
-                                logger = logging.getLogger("BambiBrowser")
-                                logger.info(f"Killed leftover AHK process {pid}")
-                            except:
-                                pass
-    except Exception as e:
-        # Silent fail
-        pass
 
 
 def create_version_file(base_dir, logger):
@@ -193,17 +110,9 @@ def set_autostart(enable=True):
     """Set or remove BambiBrowser from Windows startup using Task Scheduler."""
     try:
         from core.autostart import enable as _enable, disable as _disable
-        # Ensure no registry Run entry exists to avoid duplicate launch
-        try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                r"Software\Microsoft\Windows\CurrentVersion\Run",
-                                0, winreg.KEY_SET_VALUE)
-            winreg.DeleteValue(key, "BambiBrowser")
-            winreg.CloseKey(key)
-        except FileNotFoundError:
-            pass  # Already not present
-        except Exception as e:
-            logging.debug(f"Could not remove registry autostart entry: {e}")
+        # Ensure no legacy registry Run entry exists to avoid duplicate launch
+        # (no-op on Linux)
+        remove_legacy_autostart_registry_entry()
 
         if enable:
             success, msg = _enable()
@@ -364,7 +273,7 @@ class BambiBrowserApp:
             threading.Thread(target=self._start_server, daemon=True).start()
         if self.main_window:
             self.main_window.show()
-            if not self.has_admin:
+            if sys.platform == "win32" and not self.has_admin:
                 self.main_window.status_label.setText("⚠️ No Admin - Limited HardLock & Text Replacer")
                 self.main_window.status_label.setStyleSheet(
                     "font-size: 11px; color: #ffcc9b; padding: 5px;"
@@ -430,7 +339,7 @@ class BambiBrowserApp:
             self.tray.stop()
 
         # Kill any leftover AHK scripts (safety net)
-        cleanup_leftover_ahk_scripts()
+        cleanup_leftover_processes()
 
         # Allow processes to exit cleanly
         time.sleep(0.2)
@@ -443,7 +352,7 @@ class BambiBrowserApp:
 
 def main():
     # Kill any leftover AHK scripts from previous runs
-    cleanup_leftover_ahk_scripts()
+    cleanup_leftover_processes()
 
     if "--no-tray" in sys.argv:
         os.environ["BAMBI_NO_TRAY"] = "1"
