@@ -1,0 +1,69 @@
+{
+  // Debug configurations for BambiBrowser (PyQt6 desktop app).
+  // Requires the "Python" + "Python Debugger" VS Code extensions (see extensions.json).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "BambiBrowser",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/bambi_browser.pyw",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "env": {
+        // Linux: force Qt onto XWayland (the app also does this itself, kept here
+        // so it applies before any early PyQt import while debugging).
+        "QT_QPA_PLATFORM": "xcb",
+        // Skip the Windows admin-elevation prompt/relaunch (no-op on Linux, but explicit).
+        "BAMBI_SKIP_ADMIN": "1"
+      }
+    },
+    {
+      "name": "BambiBrowser (no tray)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/bambi_browser.pyw",
+      "args": ["--no-tray", "--no-admin"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "env": {
+        "QT_QPA_PLATFORM": "xcb",
+        "BAMBI_SKIP_ADMIN": "1"
+      }
+    },
+    {
+      "name": "BambiBrowser (step into libs)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/bambi_browser.pyw",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false,
+      "env": {
+        "QT_QPA_PLATFORM": "xcb",
+        "BAMBI_SKIP_ADMIN": "1"
+      }
+    },
+    {
+      "name": "Python: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Attach (port 5678)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "127.0.0.1", "port": 5678 },
+      "justMyCode": true,
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}", "remoteRoot": "${workspaceFolder}" }
+      ]
+    }
+  ]
+}

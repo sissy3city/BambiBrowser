@@ -1,0 +1,26 @@
+{
+  // System interpreter — PyQt6 and the rest of requirements.txt are installed here.
+  "python.defaultInterpreterPath": "/usr/bin/python3",
+  "python.terminal.activateEnvironment": false,
+
+  // Let Pylance resolve "core.*" / "ui.*" imports from the repo root.
+  "python.analysis.extraPaths": ["${workspaceFolder}"],
+  "python.analysis.typeCheckingMode": "basic",
+
+  // Tests live in ./tests (pytest).
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"],
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  },
+  "search.exclude": {
+    "**/__pycache__": true,
+    "bambi_browser.log": true,
+    "ahk/**": true,
+    "ffmpeg/**": true,
+    "mpv/**": true
+  }
+}
